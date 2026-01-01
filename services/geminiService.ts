@@ -30,28 +30,36 @@ const clipSchema: Schema = {
 
 /**
  * Uploads a file to Gemini using the Files API.
+ * Polls for processing completion with a 5-minute timeout.
  */
 export const uploadVideo = async (apiKey: string, file: File): Promise<string> => {
   if (!apiKey) throw new Error("API Key is required");
   const ai = new GoogleGenAI({ apiKey });
 
+  const MAX_POLL_ATTEMPTS = 150; // 5 minutes at 2s intervals
+  const POLL_INTERVAL_MS = 2000;
+
   try {
     const uploadResponse = await ai.files.upload({
       file: file,
-      config: { 
+      config: {
         displayName: file.name,
-        mimeType: file.type 
+        mimeType: file.type
       }
     });
 
     const fileName = uploadResponse.name;
     let fileState = uploadResponse.state;
-    
+    let attempts = 0;
+
     while (fileState === "PROCESSING") {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      if (attempts++ >= MAX_POLL_ATTEMPTS) {
+        throw new Error("Video processing timed out after 5 minutes. Try a smaller file or different format.");
+      }
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
       const fileStatus = await ai.files.get({ name: fileName });
       fileState = fileStatus.state;
-      
+
       if (fileState === "FAILED") {
         throw new Error("Video processing failed on Gemini servers.");
       }

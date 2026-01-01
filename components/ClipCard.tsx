@@ -10,6 +10,11 @@ interface ClipCardProps {
   filename: string;
 }
 
+// Escape shell special characters for safe command-line usage
+const escapeShellFilename = (str: string): string => {
+  return str.replace(/(["\$`\\])/g, '\\$1');
+};
+
 const ClipCard: React.FC<ClipCardProps> = ({ clip, index, onPlay, isActive, filename }) => {
   const [copied, setCopied] = useState(false);
 
@@ -24,8 +29,9 @@ const ClipCard: React.FC<ClipCardProps> = ({ clip, index, onPlay, isActive, file
     const startSec = parts[0] * 60 + parts[1];
     const endParts = clip.end_time.split(':').map(Number);
     const dur = (endParts[0] * 60 + endParts[1]) - startSec;
-    
-    const cmd = `ffmpeg -ss ${startSec} -i "${filename}" -t ${dur} -c copy "highlight_${index + 1}.mp4"`;
+
+    const safeFilename = escapeShellFilename(filename);
+    const cmd = `ffmpeg -ss ${startSec} -i "${safeFilename}" -t ${dur} -c copy "highlight_${index + 1}.mp4"`;
     navigator.clipboard.writeText(cmd);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);

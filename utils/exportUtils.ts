@@ -39,23 +39,41 @@ export const generateEDL = (filename: string, clips: ClipSegment[]): string => {
 };
 
 /**
+ * Escapes shell special characters in filenames
+ */
+const escapeShellArg = (str: string, isWin: boolean): string => {
+  if (isWin) {
+    // Windows CMD: escape special chars with ^
+    return str.replace(/([&|<>^%])/g, '^$1');
+  }
+  // Unix: escape shell metacharacters
+  return str.replace(/(["\$`\\])/g, '\\$1');
+};
+
+/**
  * Generates a platform-specific batch script for FFmpeg
  */
 export const generateFFmpegScript = (filename: string, clips: ClipSegment[], platform: 'win' | 'unix'): string => {
   const isWin = platform === 'win';
+  const sep = isWin ? '\\' : '/';
   const safeFilename = filename.replace(/\s+/g, '_');
+  const escapedFilename = escapeShellArg(filename, isWin);
+
   let script = isWin ? "@echo off\n" : "#!/bin/bash\n";
   script += isWin ? "mkdir segments 2>nul\n" : "mkdir -p segments\n";
   script += isWin ? "del /q filelist.txt 2>nul\n" : "rm -f filelist.txt\n";
+
   clips.forEach((clip, index) => {
     const start = parseTimeToSeconds(clip.start_time);
     const end = parseTimeToSeconds(clip.end_time);
     const duration = end - start;
+    if (duration <= 0) return; // Skip invalid clips
     const idx = String(index).padStart(3, '0');
-    const outName = `segments/clip_${idx}.mp4`;
-    script += `ffmpeg -ss ${start} -i "${filename}" -t ${duration} -c:v copy -c:a copy "${outName}" -y\n`;
+    const outName = `segments${sep}clip_${idx}.mp4`;
+    script += `ffmpeg -ss ${start} -i "${escapedFilename}" -t ${duration} -c:v copy -c:a copy "${outName}" -y\n`;
     script += isWin ? `echo file '${outName}' >> filelist.txt\n` : `echo "file '${outName}'" >> filelist.txt\n`;
   });
+
   script += `ffmpeg -f concat -safe 0 -i filelist.txt -c copy "${safeFilename}_supercut.mp4"\n`;
   return script;
 };

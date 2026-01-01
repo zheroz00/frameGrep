@@ -12,6 +12,19 @@ import ClipCard from './components/ClipCard';
 import { AppStatus, ClipSegment, VideoFile, PromptPreset } from './types';
 import { generateEDL, generateFFmpegScript, exportPresetsToJSON } from './utils/exportUtils';
 
+// Safe localStorage write that handles quota errors
+const safeLocalStorageSet = (key: string, value: string): boolean => {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (e) {
+    if (e instanceof Error && e.name === 'QuotaExceededError') {
+      console.error('localStorage quota exceeded. Delete some presets to save new ones.');
+    }
+    return false;
+  }
+};
+
 const DEFAULT_PRESETS: PromptPreset[] = [
   {
     id: 'cinematic',
@@ -53,10 +66,19 @@ Task: Extract timestamps specifically for crashes, "fails", or near-misses. Rate
 ];
 
 const parseTime = (timeStr: string): number => {
+  if (!timeStr || typeof timeStr !== 'string') return 0;
   const parts = timeStr.split(':').map(Number);
+  // Check for NaN values
+  if (parts.some(isNaN)) return 0;
   if (parts.length === 2) return parts[0] * 60 + parts[1];
   if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
   return 0;
+};
+
+const isValidClip = (clip: ClipSegment): boolean => {
+  const start = parseTime(clip.start_time);
+  const end = parseTime(clip.end_time);
+  return end > start && start >= 0;
 };
 
 export default function App() {
@@ -104,7 +126,7 @@ export default function App() {
       }
     } else {
       setPresets(DEFAULT_PRESETS);
-      localStorage.setItem('fpv_presets', JSON.stringify(DEFAULT_PRESETS));
+      safeLocalStorageSet('fpv_presets', JSON.stringify(DEFAULT_PRESETS));
     }
 
     if (process.env.API_KEY) {
@@ -136,7 +158,11 @@ export default function App() {
     }
   };
 
+  // Check if File System Access API is supported (Chrome/Edge only)
+  const supportsFileSystemAccess = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
+
   const connectToLocalFolder = async () => {
+    if (!supportsFileSystemAccess) return;
     try {
       // @ts-ignore
       const handle = await window.showDirectoryPicker();
@@ -165,6 +191,10 @@ export default function App() {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      // Cleanup previous blob URL to prevent memory leak
+      if (videoFile?.url) {
+        URL.revokeObjectURL(videoFile.url);
+      }
       const url = URL.createObjectURL(file);
       setVideoFile({ file, url });
       setStatus(AppStatus.IDLE);
@@ -172,6 +202,15 @@ export default function App() {
       setError(null);
     }
   };
+
+  // Cleanup blob URL on unmount
+  useEffect(() => {
+    return () => {
+      if (videoFile?.url) {
+        URL.revokeObjectURL(videoFile.url);
+      }
+    };
+  }, [videoFile?.url]);
 
   const handleImportPresets = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -184,7 +223,7 @@ export default function App() {
         const merged = [...presets, ...customOnly];
         const unique = merged.filter((v, i, a) => a.findIndex(t => t.id === v.id) === i);
         setPresets(unique);
-        localStorage.setItem('fpv_presets', JSON.stringify(unique));
+        safeLocalStorageSet('fpv_presets', JSON.stringify(unique));
       } catch (err) {
         setError("Invalid preset file format.");
       }
@@ -211,7 +250,12 @@ export default function App() {
       const fileUri = await uploadVideo(apiKey, videoFile.file);
       setStatus(AppStatus.ANALYZING);
       const result = await analyzeVideo(apiKey, fileUri, videoFile.file.type, finalInstruction);
-      setClips(result);
+      // Filter out invalid clips (bad timestamps or end <= start)
+      const validClips = result.filter(isValidClip);
+      if (validClips.length < result.length) {
+        console.warn(`Filtered ${result.length - validClips.length} invalid clips`);
+      }
+      setClips(validClips);
       setStatus(AppStatus.COMPLETE);
     } catch (e: any) {
       setError(e.message);
@@ -236,7 +280,7 @@ export default function App() {
     const updated = [...presets, newPreset];
     setPresets(updated);
     setActivePresetId(newPreset.id);
-    localStorage.setItem('fpv_presets', JSON.stringify(updated));
+    safeLocalStorageSet('fpv_presets', JSON.stringify(updated));
     setNewPresetName('');
     if (directoryHandle) await syncToDisk(newPreset);
   };
@@ -245,7 +289,14 @@ export default function App() {
     setCurrentMaxDuration(val);
     const updated = presets.map(p => p.id === activePresetId ? { ...p, maxDuration: val } : p);
     setPresets(updated);
-    localStorage.setItem('fpv_presets', JSON.stringify(updated));
+    safeLocalStorageSet('fpv_presets', JSON.stringify(updated));
+  };
+
+  const updateCurrentPresetInstruction = (instruction: string) => {
+    setCurrentInstruction(instruction);
+    const updated = presets.map(p => p.id === activePresetId ? { ...p, instruction } : p);
+    setPresets(updated);
+    safeLocalStorageSet('fpv_presets', JSON.stringify(updated));
   };
 
   const deletePreset = (id: string) => {
@@ -260,7 +311,7 @@ export default function App() {
         const updated = presets.filter(p => p.id !== id);
         setPresets(updated);
         if (activePresetId === id) setActivePresetId('cinematic');
-        localStorage.setItem('fpv_presets', JSON.stringify(updated));
+        safeLocalStorageSet('fpv_presets', JSON.stringify(updated));
         setConfirmAction(prev => ({ ...prev, isOpen: false }));
       }
     });
@@ -274,7 +325,7 @@ export default function App() {
       onConfirm: () => {
         setPresets(DEFAULT_PRESETS);
         setActivePresetId('cinematic');
-        localStorage.setItem('fpv_presets', JSON.stringify(DEFAULT_PRESETS));
+        safeLocalStorageSet('fpv_presets', JSON.stringify(DEFAULT_PRESETS));
         setConfirmAction(prev => ({ ...prev, isOpen: false }));
       }
     });
@@ -347,8 +398,12 @@ export default function App() {
                     <button onClick={() => exportPresetsToJSON(presets)} className="text-zinc-500 hover:text-white transition-colors flex items-center gap-1.5 text-xs"><FileDown size={14} /> Export</button>
                     <button onClick={() => importInputRef.current?.click()} className="text-zinc-500 hover:text-white transition-colors flex items-center gap-1.5 text-xs"><FileUp size={14} /> Import</button>
                     <input type="file" ref={importInputRef} onChange={handleImportPresets} accept=".json" className="hidden" />
-                    <div className="w-px h-4 bg-zinc-800" />
-                    <button onClick={connectToLocalFolder} className={`flex items-center gap-2 text-xs font-medium transition-colors ${directoryHandle ? 'text-green-500' : 'text-zinc-500 hover:text-white'}`}>{directoryHandle ? <CheckCircle2 size={14} /> : <HardDrive size={14} />} {directoryHandle ? 'Linked' : 'Link Disk'}</button>
+                    {supportsFileSystemAccess && (
+                      <>
+                        <div className="w-px h-4 bg-zinc-800" />
+                        <button onClick={connectToLocalFolder} className={`flex items-center gap-2 text-xs font-medium transition-colors ${directoryHandle ? 'text-green-500' : 'text-zinc-500 hover:text-white'}`}>{directoryHandle ? <CheckCircle2 size={14} /> : <HardDrive size={14} />} {directoryHandle ? 'Linked' : 'Link Disk'}</button>
+                      </>
+                    )}
                     <button onClick={resetToDefaults} className="p-1.5 text-zinc-500 hover:text-white transition-colors"><RefreshCw size={14} /></button>
                   </div>
                 </div>
@@ -386,7 +441,7 @@ export default function App() {
 
                   {/* Instruction Area */}
                   <div className="relative group/text">
-                    <textarea value={currentInstruction} onChange={(e) => setCurrentInstruction(e.target.value)} className="w-full h-32 bg-zinc-950 border border-zinc-800 rounded-lg p-4 text-xs font-mono text-zinc-300 focus:outline-none focus:border-amber-500/50 resize-none transition-all" placeholder="Enter system instruction for Gemini..." />
+                    <textarea value={currentInstruction} onChange={(e) => updateCurrentPresetInstruction(e.target.value)} className="w-full h-32 bg-zinc-950 border border-zinc-800 rounded-lg p-4 text-xs font-mono text-zinc-300 focus:outline-none focus:border-amber-500/50 resize-none transition-all" placeholder="Enter system instruction for Gemini..." />
                     <div className="absolute top-2 right-2 flex gap-2">
                       <button onClick={optimizePrompt} disabled={isOptimizing || !apiKey} className="bg-zinc-900 border border-zinc-700 hover:border-amber-500 p-2 rounded-md text-amber-500 transition-all flex items-center gap-2 disabled:opacity-50">
                         {isOptimizing ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}

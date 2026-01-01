@@ -10,32 +10,29 @@ interface VideoPlayerProps {
 const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, startTime, endTime, autoPlay }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  // Handle seeking when startTime changes
-  useEffect(() => {
-    if (videoRef.current && startTime !== undefined) {
-      videoRef.current.currentTime = startTime;
-      if (autoPlay) {
-        videoRef.current.play().catch(e => console.warn("Autoplay blocked", e));
-      }
-    }
-  }, [startTime, autoPlay]);
-
-  // Handle stopping at endTime
+  // Coordinated effect for segment playback (seek + auto-stop)
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || endTime === undefined) return;
+    if (!video || startTime === undefined) return;
 
     const handleTimeUpdate = () => {
-      if (video.currentTime >= endTime) {
+      if (endTime !== undefined && video.currentTime >= endTime) {
         video.pause();
       }
     };
 
+    // Attach listener before seeking to avoid race condition
     video.addEventListener('timeupdate', handleTimeUpdate);
+    video.currentTime = startTime;
+
+    if (autoPlay) {
+      video.play().catch(e => console.warn("Autoplay blocked", e));
+    }
+
     return () => {
       video.removeEventListener('timeupdate', handleTimeUpdate);
     };
-  }, [endTime]);
+  }, [startTime, endTime, autoPlay]);
 
   return (
     <div className="relative w-full aspect-video bg-black rounded-lg overflow-hidden border border-zinc-800 shadow-2xl">
