@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { uploadVideo, analyzeVideo, UploadPhase } from '../services/geminiService';
-import { AppStatus, ClipSegment, VideoFile } from '../types';
+import { AppStatus, ClipSegment, VideoQueueItem, QueueItemStatus } from '../types';
 
 /** Parses MM:SS or HH:MM:SS to seconds */
 export const parseTime = (timeStr: string): number => {
@@ -31,77 +31,148 @@ const buildTemporalConstraint = (maxDuration: number): string => {
 };
 
 export interface UseVideoAnalysisReturn {
-  videoFile: VideoFile | null;
+  // Queue state
+  videoQueue: VideoQueueItem[];
+  activeVideoUrl: string | null;
+  activeVideoName: string | null;
+
+  // Combined clips from all videos
+  allClips: ClipSegment[];
+
+  // Status
   status: AppStatus;
-  clips: ClipSegment[];
   error: string | null;
   uploadPhase: UploadPhase | 'analyzing';
   elapsedTime: number;
   processingProgress: { attempt: number; maxAttempts: number };
+  queueProgress: { current: number; total: number };
   isBusy: boolean;
+
+  // Playback state
   currentStart: number | undefined;
   currentEnd: number | undefined;
   activeClipIndex: number | null;
-  handleFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+
+  // Actions
+  handleFilesUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  removeFromQueue: (id: string) => void;
+  clearQueue: () => void;
   runAnalysis: (apiKey: string, instruction: string, maxDuration: number) => Promise<void>;
-  handlePlayClip: (startStr: string, endStr: string, index: number) => void;
+  handlePlayClip: (clip: ClipSegment, index: number) => void;
   setError: (error: string | null) => void;
 }
 
 export function useVideoAnalysis(): UseVideoAnalysisReturn {
-  const [videoFile, setVideoFile] = useState<VideoFile | null>(null);
+  const [videoQueue, setVideoQueue] = useState<VideoQueueItem[]>([]);
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
-  const [clips, setClips] = useState<ClipSegment[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   // Progress tracking
   const [uploadPhase, setUploadPhase] = useState<UploadPhase | 'analyzing'>('uploading');
   const [elapsedTime, setElapsedTime] = useState(0);
   const [processingProgress, setProcessingProgress] = useState({ attempt: 0, maxAttempts: 150 });
+  const [queueProgress, setQueueProgress] = useState({ current: 0, total: 0 });
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Playback state
+  const [activeVideoUrl, setActiveVideoUrl] = useState<string | null>(null);
+  const [activeVideoName, setActiveVideoName] = useState<string | null>(null);
   const [currentStart, setCurrentStart] = useState<number | undefined>(undefined);
   const [currentEnd, setCurrentEnd] = useState<number | undefined>(undefined);
   const [activeClipIndex, setActiveClipIndex] = useState<number | null>(null);
 
   const isBusy = status === AppStatus.UPLOADING || status === AppStatus.PROCESSING || status === AppStatus.ANALYZING;
 
-  // Cleanup blob URL on unmount
+  // Combine all clips from queue
+  const allClips = videoQueue.flatMap(item => item.clips);
+
+  // Cleanup blob URLs on unmount
   useEffect(() => {
     return () => {
-      if (videoFile?.url) {
-        URL.revokeObjectURL(videoFile.url);
-      }
+      videoQueue.forEach(item => {
+        if (item.url) URL.revokeObjectURL(item.url);
+      });
     };
-  }, [videoFile?.url]);
+  }, []);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      // Cleanup previous blob URL to prevent memory leak
-      if (videoFile?.url) {
-        URL.revokeObjectURL(videoFile.url);
-      }
-      const url = URL.createObjectURL(file);
-      setVideoFile({ file, url });
-      setStatus(AppStatus.IDLE);
-      setClips([]);
-      setError(null);
+  const handleFilesUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const newItems: VideoQueueItem[] = Array.from(files).map(file => ({
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      file,
+      url: URL.createObjectURL(file),
+      status: 'pending' as QueueItemStatus,
+      clips: [],
+    }));
+
+    setVideoQueue(prev => [...prev, ...newItems]);
+    setStatus(AppStatus.IDLE);
+    setError(null);
+
+    // Set first video as active for preview if none selected
+    if (!activeVideoUrl && newItems.length > 0) {
+      setActiveVideoUrl(newItems[0].url);
+      setActiveVideoName(newItems[0].file.name);
     }
-  };
+
+    // Reset input
+    e.target.value = '';
+  }, [activeVideoUrl]);
+
+  const removeFromQueue = useCallback((id: string) => {
+    setVideoQueue(prev => {
+      const item = prev.find(i => i.id === id);
+      if (item?.url) URL.revokeObjectURL(item.url);
+
+      const updated = prev.filter(i => i.id !== id);
+
+      // Update active video if removed
+      if (item?.url === activeVideoUrl) {
+        const nextItem = updated[0];
+        setActiveVideoUrl(nextItem?.url || null);
+        setActiveVideoName(nextItem?.file.name || null);
+      }
+
+      return updated;
+    });
+  }, [activeVideoUrl]);
+
+  const clearQueue = useCallback(() => {
+    videoQueue.forEach(item => {
+      if (item.url) URL.revokeObjectURL(item.url);
+    });
+    setVideoQueue([]);
+    setActiveVideoUrl(null);
+    setActiveVideoName(null);
+    setActiveClipIndex(null);
+    setStatus(AppStatus.IDLE);
+  }, [videoQueue]);
+
+  const updateQueueItem = useCallback((id: string, updates: Partial<VideoQueueItem>) => {
+    setVideoQueue(prev => prev.map(item =>
+      item.id === id ? { ...item, ...updates } : item
+    ));
+  }, []);
 
   const runAnalysis = async (apiKey: string, instruction: string, maxDuration: number) => {
-    if (!videoFile || !apiKey) {
-      setError("Please provide both an API Key and a Video File.");
+    const pendingItems = videoQueue.filter(item => item.status === 'pending');
+
+    if (pendingItems.length === 0) {
+      setError("No videos in queue to analyze.");
+      return;
+    }
+
+    if (!apiKey) {
+      setError("Please provide an API Key.");
       return;
     }
 
     setStatus(AppStatus.UPLOADING);
     setError(null);
     setElapsedTime(0);
-    setUploadPhase('uploading');
-    setProcessingProgress({ attempt: 0, maxAttempts: 150 });
+    setQueueProgress({ current: 0, total: pendingItems.length });
 
     // Start elapsed time timer
     const startTime = Date.now();
@@ -112,25 +183,48 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     const finalInstruction = instruction + buildTemporalConstraint(maxDuration);
 
     try {
-      const fileUri = await uploadVideo(apiKey, videoFile.file, (phase, detail) => {
-        setUploadPhase(phase);
-        if (detail?.attempt !== undefined) {
-          setProcessingProgress({ attempt: detail.attempt, maxAttempts: detail.maxAttempts || 150 });
+      for (let i = 0; i < pendingItems.length; i++) {
+        const item = pendingItems[i];
+        setQueueProgress({ current: i + 1, total: pendingItems.length });
+
+        // Update to uploading
+        updateQueueItem(item.id, { status: 'uploading' });
+        setUploadPhase('uploading');
+        setProcessingProgress({ attempt: 0, maxAttempts: 150 });
+
+        try {
+          const fileUri = await uploadVideo(apiKey, item.file, (phase, detail) => {
+            setUploadPhase(phase);
+            updateQueueItem(item.id, { status: phase as QueueItemStatus });
+            if (detail?.attempt !== undefined) {
+              setProcessingProgress({ attempt: detail.attempt, maxAttempts: detail.maxAttempts || 150 });
+            }
+          });
+
+          // Update to analyzing
+          updateQueueItem(item.id, { status: 'analyzing' });
+          setUploadPhase('analyzing');
+
+          const result = await analyzeVideo(apiKey, fileUri, item.file.type, finalInstruction);
+
+          // Add sourceFile to each clip and filter invalid ones
+          const clipsWithSource = result
+            .filter(isValidClip)
+            .map(clip => ({
+              ...clip,
+              sourceFile: item.file.name,
+            }));
+
+          updateQueueItem(item.id, { status: 'complete', clips: clipsWithSource });
+
+        } catch (e: unknown) {
+          const message = e instanceof Error ? e.message : 'Analysis failed';
+          updateQueueItem(item.id, { status: 'error', error: message });
+          // Continue with next video instead of stopping
+          console.error(`Error processing ${item.file.name}:`, message);
         }
-      });
-
-      setStatus(AppStatus.ANALYZING);
-      setUploadPhase('analyzing');
-
-      const result = await analyzeVideo(apiKey, fileUri, videoFile.file.type, finalInstruction);
-
-      // Filter out invalid clips
-      const validClips = result.filter(isValidClip);
-      if (validClips.length < result.length) {
-        console.warn(`Filtered ${result.length - validClips.length} invalid clips`);
       }
 
-      setClips(validClips);
       setStatus(AppStatus.COMPLETE);
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : 'Analysis failed';
@@ -144,25 +238,37 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     }
   };
 
-  const handlePlayClip = (startStr: string, endStr: string, index: number) => {
-    setCurrentStart(parseTime(startStr));
-    setCurrentEnd(parseTime(endStr));
+  const handlePlayClip = useCallback((clip: ClipSegment, index: number) => {
+    // Find the video that contains this clip
+    const sourceItem = videoQueue.find(item => item.file.name === clip.sourceFile);
+    if (sourceItem) {
+      setActiveVideoUrl(sourceItem.url);
+      setActiveVideoName(sourceItem.file.name);
+    }
+
+    setCurrentStart(parseTime(clip.start_time));
+    setCurrentEnd(parseTime(clip.end_time));
     setActiveClipIndex(index);
-  };
+  }, [videoQueue]);
 
   return {
-    videoFile,
+    videoQueue,
+    activeVideoUrl,
+    activeVideoName,
+    allClips,
     status,
-    clips,
     error,
     uploadPhase,
     elapsedTime,
     processingProgress,
+    queueProgress,
     isBusy,
     currentStart,
     currentEnd,
     activeClipIndex,
-    handleFileUpload,
+    handleFilesUpload,
+    removeFromQueue,
+    clearQueue,
     runAnalysis,
     handlePlayClip,
     setError,

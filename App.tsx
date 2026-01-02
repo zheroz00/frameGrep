@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
   Upload, Zap, Video, Terminal, AlertTriangle, PlayCircle, Loader2,
-  CloudUpload, Cpu, FileCode, Monitor, Sparkles, Wand2, AlertCircle
+  CloudUpload, Cpu, FileCode, Monitor, Sparkles, Wand2, AlertCircle,
+  X, CheckCircle2, XCircle, Film
 } from 'lucide-react';
 import { optimizeSystemInstruction } from './services/geminiService';
 import VideoPlayer from './components/VideoPlayer';
@@ -91,6 +92,10 @@ export default function App() {
     a.click();
     URL.revokeObjectURL(url);
   };
+
+  // Get unique source files for export
+  const sourceFiles = [...new Set(analysis.allClips.map(c => c.sourceFile).filter(Boolean))] as string[];
+  const hasMultipleSources = sourceFiles.length > 1;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-200 font-sans selection:bg-amber-500/30">
@@ -195,17 +200,25 @@ export default function App() {
           <div className="lg:col-span-7 flex flex-col gap-6">
             {/* Video Player */}
             <div className="relative group">
-              {analysis.videoFile ? (
-                <VideoPlayer
-                  src={analysis.videoFile.url}
-                  startTime={analysis.currentStart}
-                  endTime={analysis.currentEnd}
-                  autoPlay={true}
-                />
+              {analysis.activeVideoUrl ? (
+                <>
+                  <VideoPlayer
+                    src={analysis.activeVideoUrl}
+                    startTime={analysis.currentStart}
+                    endTime={analysis.currentEnd}
+                    autoPlay={true}
+                  />
+                  {analysis.activeVideoName && (
+                    <div className="absolute top-3 left-3 px-2 py-1 bg-black/70 rounded text-xs text-zinc-300 flex items-center gap-1.5">
+                      <Film size={12} />
+                      {analysis.activeVideoName}
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="w-full aspect-video bg-zinc-900/50 border border-dashed border-zinc-800 rounded-xl flex flex-col items-center justify-center gap-4 text-zinc-600 group-hover:border-zinc-700 transition-colors">
                   <Video size={48} className="opacity-50" />
-                  <p className="text-sm font-medium">Drop 4K Footage Here</p>
+                  <p className="text-sm font-medium">Drop Footage Here</p>
                 </div>
               )}
             </div>
@@ -217,19 +230,22 @@ export default function App() {
                   <div className="flex items-center gap-3 px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-lg hover:border-zinc-600 transition-colors">
                     <Upload size={18} className="text-zinc-400" />
                     <span className="text-sm font-medium truncate">
-                      {analysis.videoFile ? analysis.videoFile.file.name : "Select Footage"}
+                      {analysis.videoQueue.length > 0
+                        ? `${analysis.videoQueue.length} video${analysis.videoQueue.length > 1 ? 's' : ''} queued`
+                        : "Select Videos (multi-select supported)"}
                     </span>
                   </div>
                   <input
                     type="file"
                     className="hidden"
                     accept="video/*"
-                    onChange={analysis.handleFileUpload}
+                    multiple
+                    onChange={analysis.handleFilesUpload}
                   />
                 </label>
                 <button
                   onClick={handleRunAnalysis}
-                  disabled={!analysis.videoFile || analysis.isBusy}
+                  disabled={analysis.videoQueue.length === 0 || analysis.isBusy}
                   className={`px-6 py-3 rounded-lg font-bold flex items-center gap-2 transition-all min-w-[140px] justify-center ${
                     analysis.isBusy
                       ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-lg shadow-amber-500/20 border border-amber-500/30'
@@ -240,6 +256,57 @@ export default function App() {
                   {analysis.isBusy ? "Processing" : "Analyze"}
                 </button>
               </div>
+
+              {/* Video Queue */}
+              {analysis.videoQueue.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <div className="flex items-center justify-between text-xs text-zinc-500">
+                    <span className="font-medium uppercase tracking-wide">Video Queue</span>
+                    {!analysis.isBusy && (
+                      <button
+                        onClick={analysis.clearQueue}
+                        className="text-zinc-600 hover:text-red-400 transition-colors"
+                      >
+                        Clear All
+                      </button>
+                    )}
+                  </div>
+                  <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                    {analysis.videoQueue.map(item => (
+                      <div
+                        key={item.id}
+                        className="flex items-center gap-2 px-3 py-2 bg-zinc-950 rounded-lg text-xs"
+                      >
+                        <div className="flex-shrink-0">
+                          {item.status === 'pending' && <div className="w-3 h-3 rounded-full bg-zinc-600" />}
+                          {item.status === 'uploading' && <CloudUpload size={12} className="text-cyan-400 animate-bounce" />}
+                          {item.status === 'processing' && <Cpu size={12} className="text-amber-400 animate-pulse" />}
+                          {item.status === 'analyzing' && <Sparkles size={12} className="text-purple-400 animate-pulse" />}
+                          {item.status === 'complete' && <CheckCircle2 size={12} className="text-green-500" />}
+                          {item.status === 'error' && <XCircle size={12} className="text-red-500" />}
+                        </div>
+                        <span className="flex-1 truncate text-zinc-400">{item.file.name}</span>
+                        {item.status === 'complete' && (
+                          <span className="text-green-500/70">{item.clips.length} clips</span>
+                        )}
+                        {item.status === 'error' && (
+                          <span className="text-red-400 truncate max-w-[100px]" title={item.error}>
+                            {item.error}
+                          </span>
+                        )}
+                        {!analysis.isBusy && item.status === 'pending' && (
+                          <button
+                            onClick={() => analysis.removeFromQueue(item.id)}
+                            className="text-zinc-600 hover:text-red-400 transition-colors"
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Progress Indicator */}
               {analysis.isBusy && (
@@ -254,8 +321,13 @@ export default function App() {
                       {analysis.uploadPhase === 'processing' && <Cpu size={16} className="animate-pulse" />}
                       {analysis.uploadPhase === 'analyzing' && <Sparkles size={16} className="animate-pulse" />}
                       <span>
+                        {analysis.queueProgress.total > 1 && (
+                          <span className="text-zinc-500 mr-2">
+                            [{analysis.queueProgress.current}/{analysis.queueProgress.total}]
+                          </span>
+                        )}
                         {analysis.uploadPhase === 'uploading' && "Uploading to Gemini..."}
-                        {analysis.uploadPhase === 'processing' && `Processing on Gemini (${analysis.processingProgress.attempt}/${analysis.processingProgress.maxAttempts})...`}
+                        {analysis.uploadPhase === 'processing' && `Processing (${analysis.processingProgress.attempt}/${analysis.processingProgress.maxAttempts})...`}
                         {analysis.uploadPhase === 'analyzing' && "AI analyzing footage..."}
                       </span>
                     </div>
@@ -284,31 +356,39 @@ export default function App() {
             </div>
 
             {/* Export Panel */}
-            {analysis.clips.length > 0 && analysis.videoFile && (
+            {analysis.allClips.length > 0 && (
               <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-xl">
                 <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
-                  <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-500">Export Supercut</h3>
+                  <div className="flex items-center gap-3">
+                    <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-500">Export Supercut</h3>
+                    {hasMultipleSources && (
+                      <span className="px-2 py-0.5 bg-amber-500/10 text-amber-500 text-[10px] font-medium rounded">
+                        {sourceFiles.length} sources
+                      </span>
+                    )}
+                  </div>
                   <div className="flex gap-2">
                     <button
-                      onClick={() => downloadFile(generateEDL(analysis.videoFile!.file.name, analysis.clips), 'FPV_Supercut.edl')}
+                      onClick={() => downloadFile(generateEDL(sourceFiles[0] || 'video.mp4', analysis.allClips), 'FPV_Supercut.edl')}
                       className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs rounded flex items-center gap-2 transition-colors"
                     >
-                      <Monitor size={12} /> Resolve / Premiere (.edl)
+                      <Monitor size={12} /> EDL
                     </button>
                     <button
-                      onClick={() => downloadFile(generateFFmpegScript(analysis.videoFile!.file.name, analysis.clips, 'unix'), 'stitch.sh')}
+                      onClick={() => downloadFile(generateFFmpegScript(sourceFiles[0] || 'video.mp4', analysis.allClips, 'unix'), 'stitch.sh')}
                       className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs rounded flex items-center gap-2 transition-colors"
                     >
-                      <FileCode size={12} /> FFmpeg (.sh)
+                      <FileCode size={12} /> FFmpeg
                     </button>
                   </div>
                 </div>
                 <div className="p-4 bg-black/50">
                   <div className="flex items-center gap-2 text-xs text-zinc-500 mb-3 font-mono">
-                    <Terminal size={14} /> Local Concatenation CLI
+                    <Terminal size={14} /> FFmpeg Commands
                   </div>
-                  <pre className="text-[10px] font-mono text-zinc-400 overflow-x-auto whitespace-pre p-3 bg-black rounded border border-zinc-800 scrollbar-thin">
-                    {generateFFmpegScript(analysis.videoFile.file.name, analysis.clips, 'unix').split('\n').filter(l => l.includes('ffmpeg')).join('\n')}
+                  <pre className="text-[10px] font-mono text-zinc-400 overflow-x-auto whitespace-pre p-3 bg-black rounded border border-zinc-800 scrollbar-thin max-h-32">
+                    {generateFFmpegScript(sourceFiles[0] || 'video.mp4', analysis.allClips, 'unix').split('\n').filter(l => l.includes('ffmpeg')).slice(0, 5).join('\n')}
+                    {analysis.allClips.length > 5 && '\n# ... and more'}
                   </pre>
                 </div>
               </div>
@@ -322,28 +402,30 @@ export default function App() {
                 <PlayCircle className="text-amber-500" size={20} />
                 <h2 className="text-lg font-bold text-white">Analyzed Clips</h2>
               </div>
-              {analysis.clips.length > 0 && (
+              {analysis.allClips.length > 0 && (
                 <span className="px-2 py-0.5 bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-500 rounded">
-                  {analysis.clips.length} HIGHLIGHTS FOUND
+                  {analysis.allClips.length} HIGHLIGHTS
+                  {hasMultipleSources && ` / ${sourceFiles.length} VIDEOS`}
                 </span>
               )}
             </div>
 
             <div className="flex-1 overflow-y-auto pr-2 space-y-3 pb-8 scrollbar-thin">
-              {analysis.clips.length === 0 && !analysis.isBusy ? (
+              {analysis.allClips.length === 0 && !analysis.isBusy ? (
                 <div className="h-full flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl p-8 bg-zinc-900/20">
                   <Zap className="opacity-10 mb-4" size={48} />
                   <p className="text-center text-sm opacity-50">Upload footage to begin highlight extraction.</p>
                 </div>
               ) : (
-                analysis.clips.map((clip, idx) => (
+                analysis.allClips.map((clip, idx) => (
                   <ClipCard
                     key={idx}
                     index={idx}
                     clip={clip}
-                    filename={analysis.videoFile?.file.name || 'video.mp4'}
-                    onPlay={() => analysis.handlePlayClip(clip.start_time, clip.end_time, idx)}
+                    filename={clip.sourceFile || 'video.mp4'}
+                    onPlay={() => analysis.handlePlayClip(clip, idx)}
                     isActive={analysis.activeClipIndex === idx}
+                    showSource={hasMultipleSources}
                   />
                 ))
               )}

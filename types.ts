@@ -1,9 +1,9 @@
-
 export interface ClipSegment {
   start_time: string; // Format "MM:SS"
   end_time: string;   // Format "MM:SS"
   description: string;
   excitement_score: number; // 1-10
+  sourceFile?: string; // Original filename for multi-video support
 }
 
 export interface AnalysisResult {
@@ -23,6 +23,17 @@ export enum AppStatus {
 export interface VideoFile {
   file: File;
   url: string;
+}
+
+export type QueueItemStatus = 'pending' | 'uploading' | 'processing' | 'analyzing' | 'complete' | 'error';
+
+export interface VideoQueueItem {
+  id: string;
+  file: File;
+  url: string;
+  status: QueueItemStatus;
+  clips: ClipSegment[];
+  error?: string;
 }
 
 export type PresetCategory = 'fpv' | 'generic' | 'custom';

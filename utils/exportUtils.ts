@@ -17,9 +17,10 @@ const formatSecondsToSMPTE = (seconds: number): string => {
 
 /**
  * Generates a CMX 3600 EDL string for DaVinci Resolve / Premiere
+ * Supports multi-source clips via clip.sourceFile
  */
 export const generateEDL = (filename: string, clips: ClipSegment[]): string => {
-  let edl = `TITLE: FPV_SUPERCUT_${filename}\nFCM: NON-DROP FRAME\n\n`;
+  let edl = `TITLE: FPV_SUPERCUT\nFCM: NON-DROP FRAME\n\n`;
   let timelineCursor = 0;
   clips.forEach((clip, index) => {
     const startSec = parseTimeToSeconds(clip.start_time);
@@ -30,8 +31,9 @@ export const generateEDL = (filename: string, clips: ClipSegment[]): string => {
     const timelineStart = formatSecondsToSMPTE(timelineCursor);
     const timelineEnd = formatSecondsToSMPTE(timelineCursor + duration);
     const idx = String(index + 1).padStart(3, '0');
+    const sourceFile = clip.sourceFile || filename;
     edl += `${idx}  AX       V     C        ${clipStart} ${clipEnd} ${timelineStart} ${timelineEnd}\n`;
-    edl += `* FROM CLIP NAME: ${filename}\n`;
+    edl += `* FROM CLIP NAME: ${sourceFile}\n`;
     edl += `* COMMENT: ${clip.description}\n\n`;
     timelineCursor += duration;
   });
@@ -52,29 +54,34 @@ const escapeShellArg = (str: string, isWin: boolean): string => {
 
 /**
  * Generates a platform-specific batch script for FFmpeg
+ * Supports multi-source clips via clip.sourceFile
  */
 export const generateFFmpegScript = (filename: string, clips: ClipSegment[], platform: 'win' | 'unix'): string => {
   const isWin = platform === 'win';
   const sep = isWin ? '\\' : '/';
-  const safeFilename = filename.replace(/\s+/g, '_');
-  const escapedFilename = escapeShellArg(filename, isWin);
 
   let script = isWin ? "@echo off\n" : "#!/bin/bash\n";
   script += isWin ? "mkdir segments 2>nul\n" : "mkdir -p segments\n";
   script += isWin ? "del /q filelist.txt 2>nul\n" : "rm -f filelist.txt\n";
+  script += "\n# Extract each clip segment\n";
 
   clips.forEach((clip, index) => {
     const start = parseTimeToSeconds(clip.start_time);
     const end = parseTimeToSeconds(clip.end_time);
     const duration = end - start;
     if (duration <= 0) return; // Skip invalid clips
+
+    const sourceFile = clip.sourceFile || filename;
+    const escapedSource = escapeShellArg(sourceFile, isWin);
     const idx = String(index).padStart(3, '0');
     const outName = `segments${sep}clip_${idx}.mp4`;
-    script += `ffmpeg -ss ${start} -i "${escapedFilename}" -t ${duration} -c:v copy -c:a copy "${outName}" -y\n`;
+
+    script += `ffmpeg -ss ${start} -i "${escapedSource}" -t ${duration} -c:v copy -c:a copy "${outName}" -y\n`;
     script += isWin ? `echo file '${outName}' >> filelist.txt\n` : `echo "file '${outName}'" >> filelist.txt\n`;
   });
 
-  script += `ffmpeg -f concat -safe 0 -i filelist.txt -c copy "${safeFilename}_supercut.mp4"\n`;
+  script += "\n# Concatenate all clips\n";
+  script += `ffmpeg -f concat -safe 0 -i filelist.txt -c copy "supercut.mp4"\n`;
   return script;
 };
 

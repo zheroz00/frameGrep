@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
-import { Play, Copy, Check } from 'lucide-react';
+import { Play, Copy, Check, Film } from 'lucide-react';
 import { ClipSegment } from '../types';
 
 interface ClipCardProps {
   clip: ClipSegment;
   index: number;
-  onPlay: (start: string, end: string) => void;
+  onPlay: () => void;
   isActive: boolean;
   filename: string;
+  showSource?: boolean;
 }
 
 // Escape shell special characters for safe command-line usage
@@ -15,7 +16,7 @@ const escapeShellFilename = (str: string): string => {
   return str.replace(/(["\$`\\])/g, '\\$1');
 };
 
-const ClipCard: React.FC<ClipCardProps> = ({ clip, index, onPlay, isActive, filename }) => {
+const ClipCard: React.FC<ClipCardProps> = ({ clip, index, onPlay, isActive, filename, showSource }) => {
   const [copied, setCopied] = useState(false);
 
   const getScoreColor = (score: number) => {
@@ -52,7 +53,15 @@ const ClipCard: React.FC<ClipCardProps> = ({ clip, index, onPlay, isActive, file
           {clip.start_time} - {clip.end_time}
         </div>
       </div>
-      
+
+      {/* Source file badge for multi-video */}
+      {showSource && clip.sourceFile && (
+        <div className="flex items-center gap-1.5 text-[10px] text-zinc-500">
+          <Film size={10} />
+          <span className="truncate">{clip.sourceFile}</span>
+        </div>
+      )}
+
       <div className="flex-1">
         <p className="text-sm text-zinc-200 font-medium leading-relaxed">
           {clip.description}
@@ -61,7 +70,7 @@ const ClipCard: React.FC<ClipCardProps> = ({ clip, index, onPlay, isActive, file
 
       <div className="flex gap-2 mt-1">
         <button
-          onClick={() => onPlay(clip.start_time, clip.end_time)}
+          onClick={onPlay}
           className="flex-1 flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white text-xs py-2 rounded-lg transition-colors"
         >
           <Play size={14} /> Preview
