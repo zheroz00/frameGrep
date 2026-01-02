@@ -6,7 +6,7 @@ import {
   Save, Trash2, RefreshCw, Sparkles, Wand2, HardDrive, FolderOpen, 
   CheckCircle2, FileUp, FileDown, XCircle, AlertCircle, Clock
 } from 'lucide-react';
-import { uploadVideo, analyzeVideo, optimizeSystemInstruction } from './services/geminiService';
+import { uploadVideo, analyzeVideo, optimizeSystemInstruction, UploadPhase } from './services/geminiService';
 import VideoPlayer from './components/VideoPlayer';
 import ClipCard from './components/ClipCard';
 import { AppStatus, ClipSegment, VideoFile, PromptPreset } from './types';
@@ -87,6 +87,12 @@ export default function App() {
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
   const [clips, setClips] = useState<ClipSegment[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  // Progress tracking
+  const [uploadPhase, setUploadPhase] = useState<UploadPhase | 'analyzing'>('uploading');
+  const [elapsedTime, setElapsedTime] = useState(0);
+  const [processingProgress, setProcessingProgress] = useState({ attempt: 0, maxAttempts: 150 });
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
   
   // Prompt Lab State
   const [isPromptLabOpen, setIsPromptLabOpen] = useState(false);
@@ -180,7 +186,8 @@ export default function App() {
     setIsOptimizing(true);
     try {
       const optimized = await optimizeSystemInstruction(apiKey, currentInstruction);
-      setCurrentInstruction(optimized);
+      // Save to preset (persists to localStorage)
+      updateCurrentPresetInstruction(optimized);
     } catch (err) {
       console.error(err);
     } finally {
@@ -238,17 +245,32 @@ export default function App() {
     }
     setStatus(AppStatus.UPLOADING);
     setError(null);
+    setElapsedTime(0);
+    setUploadPhase('uploading');
+    setProcessingProgress({ attempt: 0, maxAttempts: 150 });
+
+    // Start elapsed time timer
+    const startTime = Date.now();
+    timerRef.current = setInterval(() => {
+      setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
+    }, 1000);
 
     // Inject strict temporal constraints into whatever instruction is current
-    const temporalConstraint = `\n\nSTRICT TEMPORAL CONSTRAINT: 
-1. Every extracted clip (end_time - start_time) MUST be between 2 and ${currentMaxDuration} seconds long. 
+    const temporalConstraint = `\n\nSTRICT TEMPORAL CONSTRAINT:
+1. Every extracted clip (end_time - start_time) MUST be between 2 and ${currentMaxDuration} seconds long.
 2. Ensure you do not cut off the peak of the maneuver. If a maneuver is longer than ${currentMaxDuration}s, capture the most exciting core segment.`;
-    
+
     const finalInstruction = currentInstruction + temporalConstraint;
 
     try {
-      const fileUri = await uploadVideo(apiKey, videoFile.file);
+      const fileUri = await uploadVideo(apiKey, videoFile.file, (phase, detail) => {
+        setUploadPhase(phase);
+        if (detail?.attempt !== undefined) {
+          setProcessingProgress({ attempt: detail.attempt, maxAttempts: detail.maxAttempts || 150 });
+        }
+      });
       setStatus(AppStatus.ANALYZING);
+      setUploadPhase('analyzing');
       const result = await analyzeVideo(apiKey, fileUri, videoFile.file.type, finalInstruction);
       // Filter out invalid clips (bad timestamps or end <= start)
       const validClips = result.filter(isValidClip);
@@ -260,6 +282,12 @@ export default function App() {
     } catch (e: any) {
       setError(e.message);
       setStatus(AppStatus.ERROR);
+    } finally {
+      // Stop timer
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
     }
   };
 
@@ -482,16 +510,45 @@ export default function App() {
                 <button
                   onClick={runAnalysis}
                   disabled={!videoFile || isBusy}
-                  className={`px-6 py-3 rounded-lg font-bold flex items-center gap-2 transition-all min-w-[140px] justify-center ${isBusy ? 'bg-zinc-800 text-zinc-500' : 'bg-amber-500 hover:bg-amber-400 text-zinc-950 shadow-lg shadow-amber-500/10'}`}
+                  className={`px-6 py-3 rounded-lg font-bold flex items-center gap-2 transition-all min-w-[140px] justify-center ${
+                    isBusy
+                      ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-lg shadow-amber-500/20 border border-amber-500/30'
+                      : 'bg-amber-500 hover:bg-amber-400 text-zinc-950 shadow-lg shadow-amber-500/10'
+                  }`}
                 >
                   {isBusy ? <Loader2 className="animate-spin" size={18} /> : <Zap size={18} fill="currentColor" />}
                   {isBusy ? "Processing" : "Analyze"}
                 </button>
               </div>
               {isBusy && (
-                <div className="mt-4 flex items-center gap-3 text-xs text-zinc-500 animate-pulse">
-                  {status === AppStatus.UPLOADING ? <CloudUpload size={14} /> : <Cpu size={14} />}
-                  <span>{status === AppStatus.UPLOADING ? "Uploading 4K file to Gemini..." : "Extracting maneuvers..."}</span>
+                <div className="mt-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className={`flex items-center gap-3 text-sm font-medium ${
+                      uploadPhase === 'uploading' ? 'text-cyan-400' :
+                      uploadPhase === 'processing' ? 'text-amber-400' :
+                      'text-purple-400'
+                    }`}>
+                      {uploadPhase === 'uploading' && <CloudUpload size={16} className="animate-bounce" />}
+                      {uploadPhase === 'processing' && <Cpu size={16} className="animate-pulse" />}
+                      {uploadPhase === 'analyzing' && <Sparkles size={16} className="animate-pulse" />}
+                      <span>
+                        {uploadPhase === 'uploading' && "Uploading to Gemini..."}
+                        {uploadPhase === 'processing' && `Processing on Gemini (${processingProgress.attempt}/${processingProgress.maxAttempts})...`}
+                        {uploadPhase === 'analyzing' && "AI analyzing footage..."}
+                      </span>
+                    </div>
+                    <span className="text-amber-500 font-mono font-bold tabular-nums text-sm">
+                      {Math.floor(elapsedTime / 60)}:{String(elapsedTime % 60).padStart(2, '0')}
+                    </span>
+                  </div>
+                  {uploadPhase === 'processing' && (
+                    <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-amber-500 to-orange-500 transition-all duration-500"
+                        style={{ width: `${Math.min((processingProgress.attempt / processingProgress.maxAttempts) * 100, 100)}%` }}
+                      />
+                    </div>
+                  )}
                 </div>
               )}
               {error && <div className="mt-4 p-3 bg-red-900/20 border border-red-900/50 rounded-lg flex items-center gap-3 text-red-400 text-sm"><AlertTriangle size={16} />{error}</div>}

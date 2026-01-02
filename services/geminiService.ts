@@ -28,11 +28,19 @@ const clipSchema: Schema = {
   },
 };
 
+export type UploadPhase = 'uploading' | 'processing';
+export type ProgressCallback = (phase: UploadPhase, detail?: { attempt?: number; maxAttempts?: number }) => void;
+
 /**
  * Uploads a file to Gemini using the Files API.
  * Polls for processing completion with a 5-minute timeout.
+ * @param onProgress - Optional callback for progress updates
  */
-export const uploadVideo = async (apiKey: string, file: File): Promise<string> => {
+export const uploadVideo = async (
+  apiKey: string,
+  file: File,
+  onProgress?: ProgressCallback
+): Promise<string> => {
   if (!apiKey) throw new Error("API Key is required");
   const ai = new GoogleGenAI({ apiKey });
 
@@ -40,6 +48,8 @@ export const uploadVideo = async (apiKey: string, file: File): Promise<string> =
   const POLL_INTERVAL_MS = 2000;
 
   try {
+    onProgress?.('uploading');
+
     const uploadResponse = await ai.files.upload({
       file: file,
       config: {
@@ -56,6 +66,7 @@ export const uploadVideo = async (apiKey: string, file: File): Promise<string> =
       if (attempts++ >= MAX_POLL_ATTEMPTS) {
         throw new Error("Video processing timed out after 5 minutes. Try a smaller file or different format.");
       }
+      onProgress?.('processing', { attempt: attempts, maxAttempts: MAX_POLL_ATTEMPTS });
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
       const fileStatus = await ai.files.get({ name: fileName });
       fileState = fileStatus.state;
