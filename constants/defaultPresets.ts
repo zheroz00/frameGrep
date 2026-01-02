@@ -136,5 +136,207 @@ Visual/Audio cues:
 
 Include: Hard landings, failed recovery attempts, pilot overconfidence moments.
 Ignore: Intentional landings, normal flight, minor vibration.`
+  },
+
+  // ============================================
+  // GENERIC VIDEO PRESETS
+  // ============================================
+  {
+    id: 'highlights-reel',
+    name: 'Highlights Reel',
+    isDefault: true,
+    category: 'generic',
+    maxDuration: 20,
+    instruction: `Role: Professional video editor creating a highlight reel.
+
+Objective: Extract the most engaging, memorable, and visually appealing moments from any video content.
+
+What to look for:
+- KEY MOMENTS: Pivotal scenes that capture the essence of the video - celebrations, achievements, reveals, or emotional peaks.
+- VISUAL IMPACT: Shots with strong composition, good lighting, or striking imagery.
+- ACTION PEAKS: Moments of highest activity or energy in the footage.
+- EMOTIONAL BEATS: Laughter, surprise, joy, tension, or any genuine emotional expression.
+- TRANSITIONS: Natural scene changes or moments that would edit well together.
+- AUDIO HIGHLIGHTS: Moments with great natural sound, music sync points, or impactful dialogue.
+
+Scoring (1-10):
+- 9-10: Unmissable moment - defines the video or tells its core story
+- 7-8: Strong highlight that adds significant value
+- 5-6: Good moment but not essential
+- 1-4: Average footage without standout qualities
+
+Prioritize variety - select moments from throughout the video, not just one section.
+
+Ignore: Dead air, repetitive content, poor audio/video quality, setup/teardown footage.`
+  },
+  {
+    id: 'tutorial-chapters',
+    name: 'Tutorial Chapters',
+    isDefault: true,
+    category: 'generic',
+    maxDuration: 60,
+    instruction: `Role: Educational content editor for tutorials and how-to videos.
+
+Objective: Identify distinct chapters, key demonstrations, and important instructional moments.
+
+What to extract:
+- CHAPTER STARTS: When a new topic, step, or concept begins. Look for verbal cues like "Next...", "Now we'll...", "Step 2 is...".
+- KEY DEMONSTRATIONS: Hands-on moments showing HOW to do something, not just talking about it.
+- IMPORTANT EXPLANATIONS: Crucial concepts, tips, or warnings that viewers need to understand.
+- BEFORE/AFTER: Comparison moments showing results or transformations.
+- COMMON MISTAKES: When the presenter addresses what NOT to do.
+- SUMMARY POINTS: Recap moments or key takeaways.
+
+Visual cues:
+- Screen changes, slides, or graphic overlays
+- Close-up shots of hands/actions
+- Text on screen indicating steps
+- Presenter gesturing to important elements
+
+Scoring (1-10):
+- 9-10: Essential step that cannot be skipped - core learning moment
+- 7-8: Important supporting information or demonstration
+- 5-6: Helpful but supplementary content
+- 1-4: Filler, tangents, or repetition
+
+Capture COMPLETE demonstrations - don't cut mid-action. Include the setup and result.
+
+Ignore: Small talk, off-topic tangents, technical difficulties, long pauses.`
+  },
+  {
+    id: 'sports-action',
+    name: 'Sports & Action',
+    isDefault: true,
+    category: 'generic',
+    maxDuration: 12,
+    instruction: `Role: Sports highlight editor for action footage.
+
+Objective: Capture peak athletic moments, impressive plays, and high-energy action sequences.
+
+What to look for:
+- PEAK ACTION: The moment of maximum intensity - the goal, the trick landing, the finish line.
+- BUILD-UP MOMENTS: Lead-ins that create tension before the main action.
+- SKILL DISPLAYS: Impressive technique, coordination, or athletic ability.
+- REACTIONS: Celebrations, crowd responses, or emotional aftermath.
+- CLOSE CALLS: Near-misses, saves, or dramatic recoveries.
+- SPEED SEQUENCES: Fast-paced action that showcases velocity and agility.
+
+Sport-specific cues:
+- Ball/object reaching target or goal
+- Athletes at full extension or peak effort
+- Impact moments (catches, hits, jumps)
+- Photo-finish or close competition
+
+Scoring (1-10):
+- 9-10: Highlight reel moment - impressive skill or dramatic outcome
+- 7-8: Strong action worth including
+- 5-6: Decent action but common or expected
+- 1-4: Routine play or low-intensity moment
+
+Include the COMPLETE play - from initiation through conclusion and reaction.
+
+Ignore: Timeouts, setup periods, walking/resting, equipment adjustments.`
+  },
+  {
+    id: 'event-recap',
+    name: 'Event Recap',
+    isDefault: true,
+    category: 'generic',
+    maxDuration: 15,
+    instruction: `Role: Event videographer creating a recap/summary video.
+
+Objective: Capture the key moments, atmosphere, and story of an event (wedding, party, conference, concert, etc.).
+
+What to extract:
+- MILESTONE MOMENTS: Ceremonies, toasts, performances, announcements, or scheduled highlights.
+- CANDID REACTIONS: Genuine laughter, tears, surprise, dancing, or emotional responses.
+- ATMOSPHERE SHOTS: Wide shots that capture the venue, crowd, decorations, or overall vibe.
+- INTERACTIONS: Meaningful conversations, greetings, or group activities.
+- PERFORMANCES: Musical acts, speeches, presentations, or entertainment.
+- DETAILS: Close-ups of food, decor, meaningful objects, or event branding.
+
+Event storytelling:
+- Capture beginning, middle, and end of the event arc
+- Look for setup → anticipation → payoff sequences
+- Find moments that convey "you had to be there" energy
+
+Scoring (1-10):
+- 9-10: Defines the event - the moment everyone will remember
+- 7-8: Important moment that tells the event story
+- 5-6: Nice-to-have atmospheric content
+- 1-4: Generic filler or low-energy moments
+
+Balance variety: include different people, locations, and activities from throughout the event.
+
+Ignore: Empty rooms, people on phones, logistical/setup footage, extended dead time.`
+  },
+  {
+    id: 'broll-selects',
+    name: 'B-Roll Selects',
+    isDefault: true,
+    category: 'generic',
+    maxDuration: 8,
+    instruction: `Role: Video editor selecting usable B-roll footage.
+
+Objective: Identify clean, stable, visually interesting shots that can be used as cutaway footage in edits.
+
+What makes good B-roll:
+- STABLE SHOTS: Steady footage from tripod, gimbal, or very stable handheld. No shake.
+- CLEAN MOTION: Smooth pans, tilts, or tracking shots with consistent movement.
+- VISUAL INTEREST: Strong composition, leading lines, depth, or interesting subjects.
+- CONTEXT ESTABLISHERS: Wide shots that set the scene or show environment.
+- DETAIL SHOTS: Close-ups of hands, objects, textures, or activities.
+- NATURAL ACTION: People doing things naturally without acknowledging camera.
+
+Technical requirements:
+- Good exposure (not too dark or blown out)
+- In focus throughout the shot
+- Clean audio or easily replaceable audio
+- No visible crew, equipment, or shot setup
+
+Scoring (1-10):
+- 9-10: Premium B-roll - broadcast quality, highly versatile
+- 7-8: Solid B-roll with good production value
+- 5-6: Usable but limited applications
+- 1-4: Too shaky, poorly exposed, or uninteresting
+
+Look for COMPLETE shots with natural beginnings and endings.
+
+Ignore: Behind-the-scenes chaos, shaky footage, test shots, people looking at camera, audio with talking that can't be removed.`
+  },
+  {
+    id: 'talking-head',
+    name: 'Best Takes',
+    isDefault: true,
+    category: 'generic',
+    maxDuration: 45,
+    instruction: `Role: Video editor selecting the best takes from interview or vlog footage.
+
+Objective: Find the cleanest, most articulate, and most engaging segments from talking-head content.
+
+What to look for:
+- CLEAN DELIVERY: Segments where the speaker is clear, confident, and doesn't stumble.
+- KEY QUOTES: Memorable statements, insights, or soundbites.
+- EMOTIONAL MOMENTS: Genuine passion, humor, or vulnerability.
+- COMPLETE THOUGHTS: Full sentences or ideas delivered without interruption.
+- NATURAL ENERGY: Moments where the speaker seems most authentic and engaged.
+- VISUAL QUALITY: Good eye contact, pleasant expression, proper framing.
+
+Quality indicators:
+- No "um", "uh", or long pauses
+- No false starts or self-corrections
+- Consistent audio levels
+- Speaker looks comfortable and natural
+- Good lighting on face
+
+Scoring (1-10):
+- 9-10: Perfect take - quotable, clean, compelling
+- 7-8: Very good delivery with minor imperfections
+- 5-6: Usable but needs tight editing
+- 1-4: Too many errors, low energy, or poor quality
+
+Capture COMPLETE thoughts - include the full statement from beginning to natural end.
+
+Ignore: Outtakes, bloopers (unless specifically requested), coughing/sneezing, phone interruptions, "let me start again" moments.`
   }
 ];
