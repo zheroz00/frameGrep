@@ -1,8 +1,10 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { PromptPreset, PresetCategory } from '../types';
 import { DEFAULT_PRESETS } from '../constants/defaultPresets';
 
 const STORAGE_KEY = 'fpv_presets';
+const AUTO_BACKUP_KEY = 'fpv_auto_backup';
+const LAST_BACKUP_KEY = 'fpv_last_backup';
 
 /** Safe localStorage write that handles quota errors */
 const safeLocalStorageSet = (key: string, value: string): boolean => {
@@ -29,10 +31,13 @@ export interface UsePresetsReturn {
   directoryHandle: FileSystemDirectoryHandle | null;
   supportsFileSystemAccess: boolean;
   importInputRef: React.RefObject<HTMLInputElement | null>;
+  autoBackupEnabled: boolean;
+  lastBackupTime: string | null;
   setActiveCategory: (category: PresetCategory) => void;
   setActivePresetId: (id: string) => void;
   setNewPresetName: (name: string) => void;
   setIsOptimizing: (val: boolean) => void;
+  setAutoBackupEnabled: (enabled: boolean) => void;
   updateCurrentPresetInstruction: (instruction: string) => void;
   updateCurrentPresetDuration: (val: number) => void;
   savePreset: () => Promise<void>;
@@ -40,6 +45,7 @@ export interface UsePresetsReturn {
   resetToDefaults: () => { title: string; message: string; onConfirm: () => void };
   handleImportPresets: (e: React.ChangeEvent<HTMLInputElement>) => string | null;
   connectToLocalFolder: () => Promise<void>;
+  triggerBackupNow: () => void;
 }
 
 export function usePresets(): UsePresetsReturn {
@@ -51,9 +57,72 @@ export function usePresets(): UsePresetsReturn {
   const [newPresetName, setNewPresetName] = useState('');
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [directoryHandle, setDirectoryHandle] = useState<FileSystemDirectoryHandle | null>(null);
+  const [autoBackupEnabled, setAutoBackupEnabledState] = useState(() => {
+    const saved = localStorage.getItem(AUTO_BACKUP_KEY);
+    return saved === 'true';
+  });
+  const [lastBackupTime, setLastBackupTime] = useState<string | null>(() => {
+    return localStorage.getItem(LAST_BACKUP_KEY);
+  });
   const importInputRef = useRef<HTMLInputElement>(null);
+  const backupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const presetsRef = useRef<PromptPreset[]>([]);
+
+  // Keep presetsRef in sync for use in callbacks
+  useEffect(() => {
+    presetsRef.current = presets;
+  }, [presets]);
 
   const supportsFileSystemAccess = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
+
+  // Auto-backup function - downloads presets JSON
+  const performBackup = useCallback(() => {
+    const presetsToBackup = presetsRef.current;
+    if (presetsToBackup.length === 0) return;
+
+    const timestamp = new Date().toISOString();
+    const data = JSON.stringify(presetsToBackup, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `fpv-presets-backup-${timestamp.split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    const timeStr = new Date().toLocaleString();
+    setLastBackupTime(timeStr);
+    localStorage.setItem(LAST_BACKUP_KEY, timeStr);
+  }, []);
+
+  // Debounced auto-backup trigger
+  const triggerAutoBackup = useCallback(() => {
+    if (!autoBackupEnabled) return;
+
+    // Clear existing timeout
+    if (backupTimeoutRef.current) {
+      clearTimeout(backupTimeoutRef.current);
+    }
+
+    // Debounce: wait 30 seconds after last change before backing up
+    backupTimeoutRef.current = setTimeout(() => {
+      performBackup();
+    }, 30000);
+  }, [autoBackupEnabled, performBackup]);
+
+  // Manual backup trigger
+  const triggerBackupNow = useCallback(() => {
+    if (backupTimeoutRef.current) {
+      clearTimeout(backupTimeoutRef.current);
+    }
+    performBackup();
+  }, [performBackup]);
+
+  // Toggle auto-backup
+  const setAutoBackupEnabled = useCallback((enabled: boolean) => {
+    setAutoBackupEnabledState(enabled);
+    localStorage.setItem(AUTO_BACKUP_KEY, String(enabled));
+  }, []);
 
   // Filter presets by active category
   const filteredPresets = useMemo(() => {
@@ -120,6 +189,7 @@ export function usePresets(): UsePresetsReturn {
     const updated = presets.map(p => p.id === activePresetId ? { ...p, instruction } : p);
     setPresets(updated);
     safeLocalStorageSet(STORAGE_KEY, JSON.stringify(updated));
+    triggerAutoBackup();
   };
 
   const updateCurrentPresetDuration = (val: number) => {
@@ -127,6 +197,7 @@ export function usePresets(): UsePresetsReturn {
     const updated = presets.map(p => p.id === activePresetId ? { ...p, maxDuration: val } : p);
     setPresets(updated);
     safeLocalStorageSet(STORAGE_KEY, JSON.stringify(updated));
+    triggerAutoBackup();
   };
 
   const savePreset = async () => {
@@ -145,6 +216,7 @@ export function usePresets(): UsePresetsReturn {
     safeLocalStorageSet(STORAGE_KEY, JSON.stringify(updated));
     setNewPresetName('');
     if (directoryHandle) await syncToDisk(newPreset);
+    triggerAutoBackup();
   };
 
   const deletePreset = (id: string) => {
@@ -159,6 +231,7 @@ export function usePresets(): UsePresetsReturn {
         setPresets(updated);
         if (activePresetId === id) setActivePresetId('cinematic');
         safeLocalStorageSet(STORAGE_KEY, JSON.stringify(updated));
+        triggerAutoBackup();
       }
     };
   };
@@ -170,6 +243,7 @@ export function usePresets(): UsePresetsReturn {
       setPresets(DEFAULT_PRESETS);
       setActivePresetId('cinematic');
       safeLocalStorageSet(STORAGE_KEY, JSON.stringify(DEFAULT_PRESETS));
+      triggerAutoBackup();
     }
   });
 
@@ -208,10 +282,13 @@ export function usePresets(): UsePresetsReturn {
     directoryHandle,
     supportsFileSystemAccess,
     importInputRef,
+    autoBackupEnabled,
+    lastBackupTime,
     setActiveCategory,
     setActivePresetId,
     setNewPresetName,
     setIsOptimizing,
+    setAutoBackupEnabled,
     updateCurrentPresetInstruction,
     updateCurrentPresetDuration,
     savePreset,
@@ -219,5 +296,6 @@ export function usePresets(): UsePresetsReturn {
     resetToDefaults,
     handleImportPresets,
     connectToLocalFolder,
+    triggerBackupNow,
   };
 }

@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   Sparkles, Loader2, RefreshCw, FileUp, FileDown,
-  HardDrive, CheckCircle2, XCircle, Clock, Save, Plane, Film, User, X
+  HardDrive, CheckCircle2, XCircle, Clock, Save, Plane, Film, User, X, Download
 } from 'lucide-react';
 import { PromptPreset, PresetCategory } from '../types';
 import { exportPresetsToJSON } from '../utils/exportUtils';
@@ -25,6 +25,8 @@ interface PromptLabProps {
   directoryHandle: FileSystemDirectoryHandle | null;
   supportsFileSystemAccess: boolean;
   importInputRef: React.RefObject<HTMLInputElement | null>;
+  autoBackupEnabled: boolean;
+  lastBackupTime: string | null;
   onClose: () => void;
   onCategoryChange: (category: PresetCategory) => void;
   onActivePresetChange: (id: string) => void;
@@ -37,6 +39,8 @@ interface PromptLabProps {
   onOptimizePrompt: () => void;
   onImportPresets: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onConnectFolder: () => void;
+  onAutoBackupChange: (enabled: boolean) => void;
+  onBackupNow: () => void;
 }
 
 const PromptLab: React.FC<PromptLabProps> = ({
@@ -52,6 +56,8 @@ const PromptLab: React.FC<PromptLabProps> = ({
   directoryHandle,
   supportsFileSystemAccess,
   importInputRef,
+  autoBackupEnabled,
+  lastBackupTime,
   onClose,
   onCategoryChange,
   onActivePresetChange,
@@ -64,6 +70,8 @@ const PromptLab: React.FC<PromptLabProps> = ({
   onOptimizePrompt,
   onImportPresets,
   onConnectFolder,
+  onAutoBackupChange,
+  onBackupNow,
 }) => {
   return (
     <>
@@ -258,6 +266,43 @@ const PromptLab: React.FC<PromptLabProps> = ({
               >
                 <Save size={14} /> Create Preset
               </button>
+            </div>
+
+            {/* Auto-Backup Section */}
+            <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-lg space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-zinc-500">
+                  <Download size={14} /> Auto-Backup
+                </div>
+                <button
+                  onClick={() => onAutoBackupChange(!autoBackupEnabled)}
+                  className={`relative w-10 h-5 rounded-full transition-colors ${
+                    autoBackupEnabled ? 'bg-amber-500' : 'bg-zinc-700'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                      autoBackupEnabled ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+              <p className="text-[10px] text-zinc-600 italic">
+                {autoBackupEnabled
+                  ? 'Presets will auto-download 30s after changes.'
+                  : 'Enable to automatically backup presets after changes.'}
+              </p>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-zinc-600">
+                  {lastBackupTime ? `Last backup: ${lastBackupTime}` : 'No backups yet'}
+                </span>
+                <button
+                  onClick={onBackupNow}
+                  className="text-xs text-zinc-500 hover:text-amber-500 transition-colors flex items-center gap-1"
+                >
+                  <Download size={12} /> Backup Now
+                </button>
+              </div>
             </div>
           </div>
         </div>

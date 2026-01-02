@@ -170,6 +170,8 @@ export default function App() {
         directoryHandle={presets.directoryHandle}
         supportsFileSystemAccess={presets.supportsFileSystemAccess}
         importInputRef={presets.importInputRef}
+        autoBackupEnabled={presets.autoBackupEnabled}
+        lastBackupTime={presets.lastBackupTime}
         onClose={() => setIsPromptLabOpen(false)}
         onCategoryChange={presets.setActiveCategory}
         onActivePresetChange={presets.setActivePresetId}
@@ -182,6 +184,8 @@ export default function App() {
         onOptimizePrompt={handleOptimizePrompt}
         onImportPresets={handleImportPresets}
         onConnectFolder={presets.connectToLocalFolder}
+        onAutoBackupChange={presets.setAutoBackupEnabled}
+        onBackupNow={presets.triggerBackupNow}
       />
 
       {/* Main Content */}
