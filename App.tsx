@@ -156,39 +156,39 @@ export default function App() {
         </div>
       </header>
 
+      {/* Prompt Lab Slide-in Panel */}
+      <PromptLab
+        isOpen={isPromptLabOpen}
+        presets={presets.filteredPresets}
+        activeCategory={presets.activeCategory}
+        activePresetId={presets.activePresetId}
+        currentInstruction={presets.currentInstruction}
+        currentMaxDuration={presets.currentMaxDuration}
+        newPresetName={presets.newPresetName}
+        isOptimizing={presets.isOptimizing}
+        apiKey={apiKey}
+        directoryHandle={presets.directoryHandle}
+        supportsFileSystemAccess={presets.supportsFileSystemAccess}
+        importInputRef={presets.importInputRef}
+        onClose={() => setIsPromptLabOpen(false)}
+        onCategoryChange={presets.setActiveCategory}
+        onActivePresetChange={presets.setActivePresetId}
+        onInstructionChange={presets.updateCurrentPresetInstruction}
+        onDurationChange={presets.updateCurrentPresetDuration}
+        onNewPresetNameChange={presets.setNewPresetName}
+        onSavePreset={presets.savePreset}
+        onDeletePreset={handleDeletePreset}
+        onResetDefaults={handleResetDefaults}
+        onOptimizePrompt={handleOptimizePrompt}
+        onImportPresets={handleImportPresets}
+        onConnectFolder={presets.connectToLocalFolder}
+      />
+
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           {/* Left Column */}
           <div className="lg:col-span-7 flex flex-col gap-6">
-            {/* Prompt Lab Panel */}
-            {isPromptLabOpen && (
-              <PromptLab
-                presets={presets.filteredPresets}
-                activeCategory={presets.activeCategory}
-                activePresetId={presets.activePresetId}
-                currentInstruction={presets.currentInstruction}
-                currentMaxDuration={presets.currentMaxDuration}
-                newPresetName={presets.newPresetName}
-                isOptimizing={presets.isOptimizing}
-                apiKey={apiKey}
-                directoryHandle={presets.directoryHandle}
-                supportsFileSystemAccess={presets.supportsFileSystemAccess}
-                importInputRef={presets.importInputRef}
-                onCategoryChange={presets.setActiveCategory}
-                onActivePresetChange={presets.setActivePresetId}
-                onInstructionChange={presets.updateCurrentPresetInstruction}
-                onDurationChange={presets.updateCurrentPresetDuration}
-                onNewPresetNameChange={presets.setNewPresetName}
-                onSavePreset={presets.savePreset}
-                onDeletePreset={handleDeletePreset}
-                onResetDefaults={handleResetDefaults}
-                onOptimizePrompt={handleOptimizePrompt}
-                onImportPresets={handleImportPresets}
-                onConnectFolder={presets.connectToLocalFolder}
-              />
-            )}
-
             {/* Video Player */}
             <div className="relative group">
               {analysis.videoFile ? (
