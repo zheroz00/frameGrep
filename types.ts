@@ -25,10 +25,13 @@ export interface VideoFile {
   url: string;
 }
 
+export type PresetCategory = 'fpv' | 'generic' | 'custom';
+
 export interface PromptPreset {
   id: string;
   name: string;
   instruction: string;
   maxDuration: number; // Configurable max clip length in seconds
   isDefault?: boolean;
+  category?: PresetCategory;
 }

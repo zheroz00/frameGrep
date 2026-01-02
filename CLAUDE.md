@@ -24,11 +24,15 @@ Set `GEMINI_API_KEY` in `.env.local` for the Gemini API. If not set, users enter
 **Stack**: React 19, Vite 6, TypeScript, Tailwind CSS, Google Gemini AI (@google/genai)
 
 **Key Files**:
-- `App.tsx` - Main component containing UI state, prompt presets, video handling, and analysis orchestration
-- `services/geminiService.ts` - Gemini API integration: video upload, analysis with structured JSON output, prompt optimization
+- `App.tsx` - Main component orchestrating UI layout and connecting hooks to components
+- `hooks/usePresets.ts` - Preset state management, localStorage sync, and disk persistence
+- `hooks/useVideoAnalysis.ts` - Video upload, Gemini analysis, progress tracking, and playback state
+- `components/PromptLab.tsx` - Prompt editing panel with preset selector, duration slider, AI polish
 - `components/VideoPlayer.tsx` - HTML5 video player with segment playback (start/end time control)
 - `components/ClipCard.tsx` - Displays individual clip metadata with FFmpeg copy command
+- `services/geminiService.ts` - Gemini API integration: video upload, analysis with structured JSON output, prompt optimization
 - `utils/exportUtils.ts` - EDL and FFmpeg batch script generation
+- `constants/defaultPresets.ts` - Default FPV analysis presets (Cinematic, Shorts, Technical, Crash)
 - `types.ts` - Core interfaces: `ClipSegment`, `PromptPreset`, `VideoFile`, `AppStatus` enum
 
 **Data Flow**:
@@ -46,7 +50,7 @@ Set `GEMINI_API_KEY` in `.env.local` for the Gemini API. If not set, users enter
 
 ## Code Organization Guidelines
 
-**Avoid monolithic files.** Keep files focused and under 300 lines when possible. App.tsx is currently too large and should be refactored.
+**Avoid monolithic files.** Keep files focused and under 300 lines when possible.
 
 **File structure conventions:**
 - `components/` - React components, one per file. Extract sub-components when they exceed ~150 lines or are reusable.
@@ -68,11 +72,3 @@ Set `GEMINI_API_KEY` in `.env.local` for the Gemini API. If not set, users enter
 - Hooks: camelCase with `use` prefix (`useVideoAnalysis.ts`)
 - Utils/services: camelCase (`exportUtils.ts`)
 - Constants: SCREAMING_SNAKE_CASE for values, camelCase for files
-
-**TODO - Refactor App.tsx:**
-The main App.tsx should be split into:
-- `hooks/usePresets.ts` - Preset state management and localStorage sync
-- `hooks/useVideoAnalysis.ts` - Upload, analysis, and progress tracking
-- `components/PromptLab.tsx` - Prompt editing panel
-- `components/AnalysisPanel.tsx` - Video upload and results display
-- `constants/defaultPresets.ts` - Move DEFAULT_PRESETS out of component
