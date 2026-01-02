@@ -1,6 +1,38 @@
 import React, { useState } from 'react';
-import { Play, Copy, Check, Film } from 'lucide-react';
-import { ClipSegment } from '../types';
+import { Play, Copy, Check, Film, Sun, Cloud, Sunset, Moon } from 'lucide-react';
+import { ClipSegment, ClipMood, LightingCondition } from '../types';
+
+// Mood badge styling
+const MOOD_CONFIG: Record<ClipMood, { label: string; class: string }> = {
+  intense: { label: 'Intense', class: 'bg-red-500/20 text-red-400 border-red-500/30' },
+  smooth: { label: 'Smooth', class: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30' },
+  dramatic: { label: 'Dramatic', class: 'bg-purple-500/20 text-purple-400 border-purple-500/30' },
+  peaceful: { label: 'Peaceful', class: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' },
+  playful: { label: 'Playful', class: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' },
+  technical: { label: 'Technical', class: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
+};
+
+// Lighting icons
+const LIGHTING_ICONS: Record<LightingCondition, React.ReactNode> = {
+  golden_hour: <Sunset size={10} className="text-orange-400" />,
+  midday: <Sun size={10} className="text-yellow-300" />,
+  overcast: <Cloud size={10} className="text-gray-400" />,
+  shade: <Cloud size={10} className="text-zinc-500" />,
+  indoor: <Moon size={10} className="text-zinc-400" />,
+  mixed: <Sun size={10} className="text-zinc-400" />,
+  low_light: <Moon size={10} className="text-indigo-400" />,
+};
+
+// Color dot styling (maps common color names to Tailwind classes)
+const getColorDotClass = (color: string): string => {
+  const colorMap: Record<string, string> = {
+    red: 'bg-red-500', orange: 'bg-orange-500', yellow: 'bg-yellow-500',
+    green: 'bg-green-500', blue: 'bg-blue-500', purple: 'bg-purple-500',
+    pink: 'bg-pink-500', cyan: 'bg-cyan-500', gray: 'bg-gray-500',
+    brown: 'bg-amber-700', white: 'bg-white', black: 'bg-zinc-900',
+  };
+  return colorMap[color.toLowerCase()] || 'bg-zinc-600';
+};
 
 interface ClipCardProps {
   clip: ClipSegment;
@@ -59,6 +91,32 @@ const ClipCard: React.FC<ClipCardProps> = ({ clip, index, onPlay, isActive, file
         <div className="flex items-center gap-1.5 text-[10px] text-zinc-500">
           <Film size={10} />
           <span className="truncate">{clip.sourceFile}</span>
+        </div>
+      )}
+
+      {/* Mood / Lighting / Colors row */}
+      {(clip.mood || clip.lighting || clip.dominant_colors?.length) && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {clip.mood && (
+            <span className={`text-[10px] px-1.5 py-0.5 rounded border ${MOOD_CONFIG[clip.mood].class}`}>
+              {MOOD_CONFIG[clip.mood].label}
+            </span>
+          )}
+          {clip.lighting && (
+            <span className="flex items-center gap-1 text-[10px] text-zinc-500" title={clip.lighting.replace('_', ' ')}>
+              {LIGHTING_ICONS[clip.lighting]}
+            </span>
+          )}
+          {clip.dominant_colors && clip.dominant_colors.length > 0 && (
+            <div className="flex items-center gap-1" title={clip.dominant_colors.join(', ')}>
+              {clip.dominant_colors.slice(0, 3).map((color, i) => (
+                <span
+                  key={i}
+                  className={`w-2.5 h-2.5 rounded-full border border-zinc-700 ${getColorDotClass(color)}`}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
 

@@ -32,14 +32,19 @@ Set `GEMINI_API_KEY` in `.env.local` for the Gemini API. If not set, users enter
 - `components/ClipCard.tsx` - Displays individual clip metadata with FFmpeg copy command
 - `services/geminiService.ts` - Gemini API integration: video upload, analysis with structured JSON output, prompt optimization
 - `utils/exportUtils.ts` - EDL and FFmpeg batch script generation
-- `constants/defaultPresets.ts` - Default FPV analysis presets (Cinematic, Shorts, Technical, Crash)
-- `types.ts` - Core interfaces: `ClipSegment`, `PromptPreset`, `VideoFile`, `AppStatus` enum
+- `constants/defaultPresets.ts` - Default presets: FPV (Cinematic, Shorts, Technical, Crash) + Generic (Highlights, Tutorial, Sports, Event, B-Roll, Best Takes)
+- `types.ts` - Core interfaces: `ClipSegment`, `PromptPreset`, `VideoQueueItem`, `AppStatus` enum
 
 **Data Flow**:
-1. User uploads video → `uploadVideo()` sends to Gemini Files API with polling for PROCESSING state
+1. User uploads video(s) → `uploadVideo()` sends to Gemini Files API with polling for PROCESSING state
 2. User triggers analysis → `analyzeVideo()` sends video URI + system instruction to Gemini with JSON schema
-3. Response parsed into `ClipSegment[]` (start_time, end_time, description, excitement_score)
+3. Response parsed into `ClipSegment[]` (start_time, end_time, description, excitement_score, mood, lighting, dominant_colors)
 4. User exports as EDL or FFmpeg script via `exportUtils`
+
+**Multi-Video Support**:
+- Queue multiple videos for batch processing
+- Each clip tracks its `sourceFile` for multi-source exports
+- Videos processed sequentially with error isolation
 
 **Gemini Integration Notes**:
 - Uses `gemini-2.5-flash` for video analysis with structured JSON output via `responseSchema`

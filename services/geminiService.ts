@@ -23,6 +23,21 @@ const clipSchema: Schema = {
         type: Type.INTEGER,
         description: "Excitement score from 1-10",
       },
+      mood: {
+        type: Type.STRING,
+        description: "Overall mood/energy of the clip",
+        enum: ["intense", "smooth", "dramatic", "peaceful", "playful", "technical"],
+      },
+      lighting: {
+        type: Type.STRING,
+        description: "Lighting conditions in the clip",
+        enum: ["golden_hour", "midday", "overcast", "shade", "indoor", "mixed", "low_light"],
+      },
+      dominant_colors: {
+        type: Type.ARRAY,
+        items: { type: Type.STRING },
+        description: "Top 1-3 dominant colors (e.g., orange, blue, green, gray)",
+      },
     },
     required: ["start_time", "end_time", "description", "excitement_score"],
   },

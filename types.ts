@@ -1,9 +1,16 @@
+export type ClipMood = 'intense' | 'smooth' | 'dramatic' | 'peaceful' | 'playful' | 'technical';
+export type LightingCondition = 'golden_hour' | 'midday' | 'overcast' | 'shade' | 'indoor' | 'mixed' | 'low_light';
+
 export interface ClipSegment {
   start_time: string; // Format "MM:SS"
   end_time: string;   // Format "MM:SS"
   description: string;
   excitement_score: number; // 1-10
   sourceFile?: string; // Original filename for multi-video support
+  // AI Color/Mood analysis (Issue #19)
+  mood?: ClipMood;
+  lighting?: LightingCondition;
+  dominant_colors?: string[]; // e.g., ["orange", "blue", "green"]
 }
 
 export interface AnalysisResult {
