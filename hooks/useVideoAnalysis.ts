@@ -1,6 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { uploadVideo, analyzeVideo, UploadPhase } from '../services/geminiService';
-import { AppStatus, ClipSegment, VideoQueueItem, QueueItemStatus } from '../types';
+import { analyzeVideoLocal, LocalVLMConfig } from '../services/localVLMService';
+import { AppStatus, ClipSegment, VideoQueueItem, QueueItemStatus, AnalysisProvider } from '../types';
+
+export type AnalysisPhase = UploadPhase | 'analyzing' | 'extracting';
 
 /** Parses MM:SS or HH:MM:SS to seconds */
 export const parseTime = (timeStr: string): number => {
@@ -42,7 +45,8 @@ export interface UseVideoAnalysisReturn {
   // Status
   status: AppStatus;
   error: string | null;
-  uploadPhase: UploadPhase | 'analyzing';
+  uploadPhase: AnalysisPhase;
+  phaseDetail: string | null;
   elapsedTime: number;
   processingProgress: { attempt: number; maxAttempts: number };
   queueProgress: { current: number; total: number };
@@ -57,7 +61,13 @@ export interface UseVideoAnalysisReturn {
   handleFilesUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   removeFromQueue: (id: string) => void;
   clearQueue: () => void;
-  runAnalysis: (apiKey: string, instruction: string, maxDuration: number) => Promise<void>;
+  runAnalysis: (
+    provider: AnalysisProvider,
+    apiKey: string,
+    instruction: string,
+    maxDuration: number,
+    localConfig?: LocalVLMConfig
+  ) => Promise<void>;
   handlePlayClip: (clip: ClipSegment, index: number) => void;
   setError: (error: string | null) => void;
 }
@@ -68,7 +78,8 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
   const [error, setError] = useState<string | null>(null);
 
   // Progress tracking
-  const [uploadPhase, setUploadPhase] = useState<UploadPhase | 'analyzing'>('uploading');
+  const [uploadPhase, setUploadPhase] = useState<AnalysisPhase>('uploading');
+  const [phaseDetail, setPhaseDetail] = useState<string | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [processingProgress, setProcessingProgress] = useState({ attempt: 0, maxAttempts: 150 });
   const [queueProgress, setQueueProgress] = useState({ current: 0, total: 0 });
@@ -156,7 +167,13 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     ));
   }, []);
 
-  const runAnalysis = async (apiKey: string, instruction: string, maxDuration: number) => {
+  const runAnalysis = async (
+    provider: AnalysisProvider,
+    apiKey: string,
+    instruction: string,
+    maxDuration: number,
+    localConfig?: LocalVLMConfig
+  ) => {
     const pendingItems = videoQueue.filter(item => item.status === 'pending');
 
     if (pendingItems.length === 0) {
@@ -164,14 +181,20 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
       return;
     }
 
-    if (!apiKey) {
-      setError("Please provide an API Key.");
+    // Validate based on provider
+    if (provider === 'gemini' && !apiKey) {
+      setError("Please provide a Gemini API Key.");
+      return;
+    }
+    if (provider === 'custom' && !localConfig) {
+      setError("Please configure custom model settings.");
       return;
     }
 
     setStatus(AppStatus.UPLOADING);
     setError(null);
     setElapsedTime(0);
+    setPhaseDetail(null);
     setQueueProgress({ current: 0, total: pendingItems.length });
 
     // Start elapsed time timer
@@ -187,25 +210,49 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
         const item = pendingItems[i];
         setQueueProgress({ current: i + 1, total: pendingItems.length });
 
-        // Update to uploading
-        updateQueueItem(item.id, { status: 'uploading' });
-        setUploadPhase('uploading');
-        setProcessingProgress({ attempt: 0, maxAttempts: 150 });
-
         try {
-          const fileUri = await uploadVideo(apiKey, item.file, (phase, detail) => {
-            setUploadPhase(phase);
-            updateQueueItem(item.id, { status: phase as QueueItemStatus });
-            if (detail?.attempt !== undefined) {
-              setProcessingProgress({ attempt: detail.attempt, maxAttempts: detail.maxAttempts || 150 });
-            }
-          });
+          let result: ClipSegment[];
 
-          // Update to analyzing
-          updateQueueItem(item.id, { status: 'analyzing' });
-          setUploadPhase('analyzing');
+          if (provider === 'custom' && localConfig) {
+            // Custom provider path - frame extraction + OpenRouter/Ollama API call
+            updateQueueItem(item.id, { status: 'processing' });
+            setUploadPhase('extracting');
+            setPhaseDetail('Preparing video frames...');
 
-          const result = await analyzeVideo(apiKey, fileUri, item.file.type, finalInstruction);
+            result = await analyzeVideoLocal(
+              localConfig,
+              item.file,
+              finalInstruction,
+              (phase, detail) => {
+                setUploadPhase(phase as AnalysisPhase);
+                setPhaseDetail(detail || null);
+                if (phase === 'analyzing') {
+                  updateQueueItem(item.id, { status: 'analyzing' });
+                }
+              }
+            );
+          } else {
+            // Gemini path - upload then analyze
+            updateQueueItem(item.id, { status: 'uploading' });
+            setUploadPhase('uploading');
+            setPhaseDetail('Uploading to Gemini...');
+            setProcessingProgress({ attempt: 0, maxAttempts: 150 });
+
+            const fileUri = await uploadVideo(apiKey, item.file, (phase, detail) => {
+              setUploadPhase(phase);
+              setPhaseDetail(phase === 'uploading' ? 'Uploading...' : 'Processing on Gemini servers...');
+              updateQueueItem(item.id, { status: phase as QueueItemStatus });
+              if (detail?.attempt !== undefined) {
+                setProcessingProgress({ attempt: detail.attempt, maxAttempts: detail.maxAttempts || 150 });
+              }
+            });
+
+            updateQueueItem(item.id, { status: 'analyzing' });
+            setUploadPhase('analyzing');
+            setPhaseDetail('Analyzing with Gemini...');
+
+            result = await analyzeVideo(apiKey, fileUri, item.file.type, finalInstruction);
+          }
 
           // Add sourceFile to each clip and filter invalid ones
           const clipsWithSource = result
@@ -226,6 +273,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
       }
 
       setStatus(AppStatus.COMPLETE);
+      setPhaseDetail(null);
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : 'Analysis failed';
       setError(message);
@@ -259,6 +307,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     status,
     error,
     uploadPhase,
+    phaseDetail,
     elapsedTime,
     processingProgress,
     queueProgress,

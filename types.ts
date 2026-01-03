@@ -53,3 +53,33 @@ export interface PromptPreset {
   isDefault?: boolean;
   category?: PresetCategory;
 }
+
+// Provider configuration for AI backends
+export type AnalysisProvider = 'gemini' | 'custom';
+
+export interface CustomProviderConfig {
+  endpoint: string;      // e.g., "https://openrouter.ai/api/v1" or "http://localhost:11434/v1"
+  model: string;         // e.g., "qwen/qwen3-vl-8b-instruct"
+  apiKey?: string;       // Required for OpenRouter, optional for Ollama
+}
+
+// Alias for backward compatibility
+export type LocalVLMConfig = CustomProviderConfig;
+
+// OpenRouter model info (from their API)
+export interface OpenRouterModel {
+  id: string;
+  name: string;
+  provider: string;
+  context_length: number;
+  prompt_price_per_1m: number;
+  completion_price_per_1m: number;
+  description: string;
+}
+
+// App settings (persisted to localStorage)
+export interface AppSettings {
+  provider: AnalysisProvider;
+  geminiApiKey: string;
+  customConfig: CustomProviderConfig;
+}

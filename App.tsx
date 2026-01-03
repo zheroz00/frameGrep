@@ -1,20 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Upload, Zap, Video, Terminal, AlertTriangle, PlayCircle, Loader2,
   CloudUpload, Cpu, FileCode, Monitor, Sparkles, Wand2, AlertCircle,
-  X, CheckCircle2, XCircle, Film
+  X, CheckCircle2, XCircle, Film, Server, Cloud, Settings
 } from 'lucide-react';
 import { optimizeSystemInstruction } from './services/geminiService';
 import VideoPlayer from './components/VideoPlayer';
 import ClipCard from './components/ClipCard';
 import PromptLab from './components/PromptLab';
+import SettingsModal from './components/settings/SettingsModal';
 import { usePresets } from './hooks/usePresets';
 import { useVideoAnalysis } from './hooks/useVideoAnalysis';
+import { useAppSettings } from './hooks/useAppSettings';
 import { generateEDL, generateFFmpegScript } from './utils/exportUtils';
 
 export default function App() {
-  const [apiKey, setApiKey] = useState<string>('');
   const [isPromptLabOpen, setIsPromptLabOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Custom Modal State
   const [confirmAction, setConfirmAction] = useState<{
@@ -27,15 +29,14 @@ export default function App() {
   // Use extracted hooks
   const presets = usePresets();
   const analysis = useVideoAnalysis();
+  const appSettings = useAppSettings();
 
-  // Load API key from environment
-  useEffect(() => {
-    if (process.env.API_KEY) {
-      setApiKey(process.env.API_KEY);
-    }
-  }, []);
+  // Destructure commonly used settings
+  const { settings, updateProvider } = appSettings;
+  const provider = settings.provider;
 
   const handleOptimizePrompt = async () => {
+    const apiKey = settings.geminiApiKey;
     if (!apiKey || !presets.currentInstruction) return;
     presets.setIsOptimizing(true);
     try {
@@ -80,7 +81,13 @@ export default function App() {
   };
 
   const handleRunAnalysis = () => {
-    analysis.runAnalysis(apiKey, presets.currentInstruction, presets.currentMaxDuration);
+    analysis.runAnalysis(
+      provider,
+      settings.geminiApiKey,
+      presets.currentInstruction,
+      presets.currentMaxDuration,
+      provider === 'custom' ? settings.customConfig : undefined
+    );
   };
 
   const downloadFile = (content: string, filename: string) => {
@@ -96,6 +103,11 @@ export default function App() {
   // Get unique source files for export
   const sourceFiles = [...new Set(analysis.allClips.map(c => c.sourceFile).filter(Boolean))] as string[];
   const hasMultipleSources = sourceFiles.length > 1;
+
+  // Get display name for custom model
+  const customModelDisplay = appSettings.openrouterModels.find(m => m.id === settings.customConfig.model)?.name
+    || settings.customConfig.model.split('/').pop()
+    || 'Custom';
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-200 font-sans selection:bg-amber-500/30">
@@ -126,6 +138,13 @@ export default function App() {
         </div>
       )}
 
+      {/* Settings Modal */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        appSettings={appSettings}
+      />
+
       {/* Header */}
       <header className="border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
@@ -137,16 +156,46 @@ export default function App() {
               FPV<span className="text-zinc-500 font-light">.AI</span> Editor
             </h1>
           </div>
-          <div className="flex items-center gap-4">
-            {!process.env.API_KEY && (
-              <input
-                type="password"
-                placeholder="Gemini API Key"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                className="bg-zinc-900 border border-zinc-700 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:border-amber-500 w-48 transition-colors"
-              />
+          <div className="flex items-center gap-3">
+            {/* Provider Toggle */}
+            <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-0.5">
+              <button
+                onClick={() => updateProvider('gemini')}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                  provider === 'gemini'
+                    ? 'bg-amber-500 text-zinc-950'
+                    : 'text-zinc-500 hover:text-white'
+                }`}
+              >
+                <Cloud size={12} /> Gemini
+              </button>
+              <button
+                onClick={() => updateProvider('custom')}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                  provider === 'custom'
+                    ? 'bg-purple-500 text-white'
+                    : 'text-zinc-500 hover:text-white'
+                }`}
+              >
+                <Server size={12} /> Custom
+              </button>
+            </div>
+
+            {/* Provider indicator / Quick info */}
+            {provider === 'custom' && (
+              <span className="text-xs text-purple-400 max-w-[120px] truncate" title={settings.customConfig.model}>
+                {customModelDisplay}
+              </span>
             )}
+
+            {/* Settings Button */}
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800"
+            >
+              <Settings size={16} />
+            </button>
+
             <button
               onClick={() => setIsPromptLabOpen(!isPromptLabOpen)}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
@@ -171,7 +220,7 @@ export default function App() {
         currentMaxDuration={presets.currentMaxDuration}
         newPresetName={presets.newPresetName}
         isOptimizing={presets.isOptimizing}
-        apiKey={apiKey}
+        apiKey={settings.geminiApiKey}
         directoryHandle={presets.directoryHandle}
         supportsFileSystemAccess={presets.supportsFileSystemAccess}
         importInputRef={presets.importInputRef}
@@ -315,10 +364,12 @@ export default function App() {
                     <div className={`flex items-center gap-3 text-sm font-medium ${
                       analysis.uploadPhase === 'uploading' ? 'text-cyan-400' :
                       analysis.uploadPhase === 'processing' ? 'text-amber-400' :
+                      analysis.uploadPhase === 'extracting' ? 'text-orange-400' :
                       'text-purple-400'
                     }`}>
                       {analysis.uploadPhase === 'uploading' && <CloudUpload size={16} className="animate-bounce" />}
                       {analysis.uploadPhase === 'processing' && <Cpu size={16} className="animate-pulse" />}
+                      {analysis.uploadPhase === 'extracting' && <Film size={16} className="animate-pulse" />}
                       {analysis.uploadPhase === 'analyzing' && <Sparkles size={16} className="animate-pulse" />}
                       <span>
                         {analysis.queueProgress.total > 1 && (
@@ -326,12 +377,19 @@ export default function App() {
                             [{analysis.queueProgress.current}/{analysis.queueProgress.total}]
                           </span>
                         )}
-                        {analysis.uploadPhase === 'uploading' && "Uploading to Gemini..."}
-                        {analysis.uploadPhase === 'processing' && `Processing (${analysis.processingProgress.attempt}/${analysis.processingProgress.maxAttempts})...`}
-                        {analysis.uploadPhase === 'analyzing' && "AI analyzing footage..."}
+                        {analysis.phaseDetail || (
+                          <>
+                            {analysis.uploadPhase === 'uploading' && "Uploading to Gemini..."}
+                            {analysis.uploadPhase === 'processing' && `Processing (${analysis.processingProgress.attempt}/${analysis.processingProgress.maxAttempts})...`}
+                            {analysis.uploadPhase === 'extracting' && "Extracting video frames..."}
+                            {analysis.uploadPhase === 'analyzing' && "AI analyzing footage..."}
+                          </>
+                        )}
                       </span>
                     </div>
-                    <span className="text-amber-500 font-mono font-bold tabular-nums text-sm">
+                    <span className={`font-mono font-bold tabular-nums text-sm ${
+                      provider === 'custom' ? 'text-purple-500' : 'text-amber-500'
+                    }`}>
                       {Math.floor(analysis.elapsedTime / 60)}:{String(analysis.elapsedTime % 60).padStart(2, '0')}
                     </span>
                   </div>
