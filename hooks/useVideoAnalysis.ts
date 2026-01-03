@@ -22,6 +22,34 @@ const isValidClip = (clip: ClipSegment): boolean => {
   return end > start && start >= 0;
 };
 
+/** Parse error message and provide user-friendly suggestions */
+const formatErrorMessage = (error: string, provider: AnalysisProvider): string => {
+  // Gemini file size limit (413 or "too large")
+  if (error.includes('413') || error.toLowerCase().includes('too large')) {
+    if (provider === 'gemini') {
+      return 'Video file too large for Gemini (2GB limit). Try: 1) Switch to Custom provider (uses frame extraction), or 2) Transcode with: ffmpeg -i input.mp4 -c:v hevc_nvenc -preset p4 -cq 28 output.mp4';
+    }
+    return 'File too large. Try transcoding: ffmpeg -i input.mp4 -c:v hevc_nvenc -preset p4 -cq 28 output.mp4';
+  }
+
+  // Gemini video duration/processing limits
+  if (error.includes('video') && (error.includes('duration') || error.includes('long'))) {
+    return 'Video too long for Gemini. Try: 1) Switch to Custom provider, or 2) Split video into shorter segments';
+  }
+
+  // Rate limiting
+  if (error.includes('429') || error.toLowerCase().includes('rate limit')) {
+    return 'Rate limited. Wait a moment and try again, or switch providers.';
+  }
+
+  // Too many images for VLM
+  if (error.toLowerCase().includes('too many images') || error.toLowerCase().includes('image limit')) {
+    return 'Too many frames for model. The adaptive frame rate should handle this - please report if you see this error.';
+  }
+
+  return error;
+};
+
 /** Builds temporal constraint suffix for Gemini instruction */
 const buildTemporalConstraint = (maxDuration: number): string => {
   const minDuration = Math.max(3, Math.floor(maxDuration / 2));
@@ -265,18 +293,19 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
           updateQueueItem(item.id, { status: 'complete', clips: clipsWithSource });
 
         } catch (e: unknown) {
-          const message = e instanceof Error ? e.message : 'Analysis failed';
+          const rawMessage = e instanceof Error ? e.message : 'Analysis failed';
+          const message = formatErrorMessage(rawMessage, provider);
           updateQueueItem(item.id, { status: 'error', error: message });
           // Continue with next video instead of stopping
-          console.error(`Error processing ${item.file.name}:`, message);
+          console.error(`Error processing ${item.file.name}:`, rawMessage);
         }
       }
 
       setStatus(AppStatus.COMPLETE);
       setPhaseDetail(null);
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : 'Analysis failed';
-      setError(message);
+      const rawMessage = e instanceof Error ? e.message : 'Analysis failed';
+      setError(formatErrorMessage(rawMessage, provider));
       setStatus(AppStatus.ERROR);
     } finally {
       if (timerRef.current) {
