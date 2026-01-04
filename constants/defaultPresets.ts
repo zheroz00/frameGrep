@@ -338,5 +338,52 @@ Scoring (1-10):
 Capture COMPLETE thoughts - include the full statement from beginning to natural end.
 
 Ignore: Outtakes, bloopers (unless specifically requested), coughing/sneezing, phone interruptions, "let me start again" moments.`
+  },
+
+  // ============================================
+  // SMART EDIT ROADMAP
+  // ============================================
+  {
+    id: 'smart-edit-roadmap',
+    name: 'Smart Edit Roadmap',
+    isDefault: true,
+    category: 'generic',
+    maxDuration: 30,
+    instruction: `Role: Professional video editor creating a complete edit roadmap.
+
+Objective: Analyze the video and classify KEY sections to guide editing decisions. Identify what to KEEP (highlights, flow) and what to CUT (dead time). Not every second needs classification - focus on notable sections.
+
+SECTION TYPES - Use these classifications:
+- highlight: Peak moments worth featuring - action, emotion, visual impact, key content
+- flow: Good connective tissue - maintains pacing, provides context, keeps story moving
+- transition: Natural edit points - scene changes, pauses, good spots for cuts or fades
+- dead_time: Should be cut - dead air, mistakes, setup, walking, waiting, nothing happening
+
+ENERGY LEVELS - Rate each section:
+- high: Fast-paced, intense, demands attention
+- medium: Steady, engaging but not overwhelming
+- low: Calm, slow, contemplative (can still be valuable!)
+
+RECOMMENDATIONS - Suggest editing action:
+- keep: Essential footage, do not remove
+- trim: Content is good but could be shortened
+- review: Borderline - editor should decide
+
+TRANSITION NOTES - For transition sections, add brief notes like:
+- "Good cut point"
+- "Natural pause for music sync"
+- "Scene change"
+- "Fade opportunity"
+
+IMPORTANT RULES:
+1. Focus on KEY sections - don't try to cover every second
+2. Mark ALL unusable sections as dead_time (setup, mistakes, boring parts)
+3. Highlights should be the best 20-30% of content, not everything
+4. Include energy_level and recommendation for every section
+5. Add transition_note for all transition-type sections
+
+For each section, provide: start_time, end_time, description, excitement_score (1-10), section_type, energy_level, recommendation, and transition_note (for transitions).
+
+OUTPUT: Valid JSON array with all fields. Focus on helping the editor quickly identify what to keep and what to cut.`
   }
 ];

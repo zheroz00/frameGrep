@@ -180,7 +180,9 @@ export function usePresets(): UsePresetsReturn {
         await syncToDisk(p);
       }
     } catch (err) {
-      console.error("Folder selection cancelled or failed", err);
+      // Silently ignore if user cancelled the dialog
+      if (err instanceof Error && err.name === 'AbortError') return;
+      console.error("Folder selection failed:", err);
     }
   };
 

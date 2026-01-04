@@ -13,10 +13,21 @@ const MAX_FRAMES = 60;
 const MIN_FPS = 0.1; // Minimum 1 frame per 10 seconds
 const MAX_FPS = 1.0; // Maximum 1 frame per second
 
+// Optional fixed FPS override from environment (e.g., 0.5, 1.0)
+const ENV_FPS_OVERRIDE = import.meta.env.VITE_FRAME_EXTRACTION_FPS
+  ? parseFloat(import.meta.env.VITE_FRAME_EXTRACTION_FPS)
+  : null;
+
 /**
- * Calculate adaptive FPS based on video duration to stay under frame limit
+ * Calculate adaptive FPS based on video duration to stay under frame limit.
+ * If VITE_FRAME_EXTRACTION_FPS is set, uses that fixed value instead.
  */
 export const calculateAdaptiveFps = (durationSeconds: number): number => {
+  // Use fixed FPS if configured via environment
+  if (ENV_FPS_OVERRIDE && !isNaN(ENV_FPS_OVERRIDE) && ENV_FPS_OVERRIDE > 0) {
+    return ENV_FPS_OVERRIDE;
+  }
+
   const idealFps = MAX_FRAMES / durationSeconds;
   return Math.max(MIN_FPS, Math.min(MAX_FPS, idealFps));
 };
@@ -153,6 +164,12 @@ Respond with a JSON array of clips. Each clip must have:
 - mood: string (one of: intense, smooth, dramatic, peaceful, playful, technical)
 - lighting: string (one of: golden_hour, midday, overcast, shade, indoor, mixed, low_light)
 - dominant_colors: string[] (1-3 dominant colors like "orange", "blue", "green")
+
+Optional fields (include when using Smart Edit Roadmap or similar presets):
+- section_type: string (one of: highlight, flow, transition, dead_time)
+- energy_level: string (one of: high, medium, low)
+- recommendation: string (one of: keep, trim, review)
+- transition_note: string (notes for transition sections, e.g., "Good cut point")
 
 Return ONLY valid JSON array, no markdown or explanation.`;
 };

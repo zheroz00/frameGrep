@@ -12,11 +12,13 @@ import SettingsModal from './components/settings/SettingsModal';
 import { usePresets } from './hooks/usePresets';
 import { useVideoAnalysis } from './hooks/useVideoAnalysis';
 import { useAppSettings } from './hooks/useAppSettings';
-import { generateEDL, generateFFmpegScript } from './utils/exportUtils';
+import { generateEDLWithMode, generateFFmpegScriptWithMode, filterClipsForExport } from './utils/exportUtils';
+import { ExportMode } from './types';
 
 export default function App() {
   const [isPromptLabOpen, setIsPromptLabOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [exportMode, setExportMode] = useState<ExportMode>('highlights_only');
 
   // Custom Modal State
   const [confirmAction, setConfirmAction] = useState<{
@@ -40,7 +42,10 @@ export default function App() {
     if (!apiKey || !presets.currentInstruction) return;
     presets.setIsOptimizing(true);
     try {
-      const optimized = await optimizeSystemInstruction(apiKey, presets.currentInstruction);
+      // Get the current preset's category for context-aware optimization
+      const activePreset = presets.presets.find(p => p.id === presets.activePresetId);
+      const category = activePreset?.category || 'generic';
+      const optimized = await optimizeSystemInstruction(apiKey, presets.currentInstruction, category);
       presets.updateCurrentPresetInstruction(optimized);
     } catch (err) {
       console.error(err);
@@ -416,37 +421,70 @@ export default function App() {
             {/* Export Panel */}
             {analysis.allClips.length > 0 && (
               <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-xl">
-                <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-500">Export Supercut</h3>
-                    {hasMultipleSources && (
-                      <span className="px-2 py-0.5 bg-amber-500/10 text-amber-500 text-[10px] font-medium rounded">
-                        {sourceFiles.length} sources
+                <div className="p-4 border-b border-zinc-800 flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-500">Export Supercut</h3>
+                      {hasMultipleSources && (
+                        <span className="px-2 py-0.5 bg-amber-500/10 text-amber-500 text-[10px] font-medium rounded">
+                          {sourceFiles.length} sources
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => downloadFile(generateEDLWithMode(sourceFiles[0] || 'video.mp4', analysis.allClips, exportMode), 'FPV_Supercut.edl')}
+                        className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs rounded flex items-center gap-2 transition-colors"
+                      >
+                        <Monitor size={12} /> EDL
+                      </button>
+                      <button
+                        onClick={() => downloadFile(generateFFmpegScriptWithMode(sourceFiles[0] || 'video.mp4', analysis.allClips, 'unix', exportMode), 'stitch.sh')}
+                        className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs rounded flex items-center gap-2 transition-colors"
+                      >
+                        <FileCode size={12} /> FFmpeg
+                      </button>
+                    </div>
+                  </div>
+                  {/* Export Mode Toggle - show when Smart Edit data is present */}
+                  {analysis.allClips.some(c => c.section_type) && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Mode:</span>
+                      <div className="flex items-center bg-zinc-950 border border-zinc-800 rounded-lg p-0.5">
+                        <button
+                          onClick={() => setExportMode('highlights_only')}
+                          className={`px-2.5 py-1 rounded-md text-[10px] font-medium transition-colors ${
+                            exportMode === 'highlights_only'
+                              ? 'bg-green-500 text-zinc-950'
+                              : 'text-zinc-500 hover:text-white'
+                          }`}
+                        >
+                          Highlights Only
+                        </button>
+                        <button
+                          onClick={() => setExportMode('full_edit')}
+                          className={`px-2.5 py-1 rounded-md text-[10px] font-medium transition-colors ${
+                            exportMode === 'full_edit'
+                              ? 'bg-amber-500 text-zinc-950'
+                              : 'text-zinc-500 hover:text-white'
+                          }`}
+                        >
+                          Full Edit (Remove Dead Time)
+                        </button>
+                      </div>
+                      <span className="text-[10px] text-zinc-600">
+                        {filterClipsForExport(analysis.allClips, exportMode).length} clips
                       </span>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => downloadFile(generateEDL(sourceFiles[0] || 'video.mp4', analysis.allClips), 'FPV_Supercut.edl')}
-                      className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs rounded flex items-center gap-2 transition-colors"
-                    >
-                      <Monitor size={12} /> EDL
-                    </button>
-                    <button
-                      onClick={() => downloadFile(generateFFmpegScript(sourceFiles[0] || 'video.mp4', analysis.allClips, 'unix'), 'stitch.sh')}
-                      className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs rounded flex items-center gap-2 transition-colors"
-                    >
-                      <FileCode size={12} /> FFmpeg
-                    </button>
-                  </div>
+                    </div>
+                  )}
                 </div>
                 <div className="p-4 bg-black/50">
                   <div className="flex items-center gap-2 text-xs text-zinc-500 mb-3 font-mono">
                     <Terminal size={14} /> FFmpeg Commands
                   </div>
                   <pre className="text-[10px] font-mono text-zinc-400 overflow-x-auto whitespace-pre p-3 bg-black rounded border border-zinc-800 scrollbar-thin max-h-32">
-                    {generateFFmpegScript(sourceFiles[0] || 'video.mp4', analysis.allClips, 'unix').split('\n').filter(l => l.includes('ffmpeg')).slice(0, 5).join('\n')}
-                    {analysis.allClips.length > 5 && '\n# ... and more'}
+                    {generateFFmpegScriptWithMode(sourceFiles[0] || 'video.mp4', analysis.allClips, 'unix', exportMode).split('\n').filter((l: string) => l.includes('ffmpeg')).slice(0, 5).join('\n')}
+                    {filterClipsForExport(analysis.allClips, exportMode).length > 5 && '\n# ... and more'}
                   </pre>
                 </div>
               </div>
@@ -461,10 +499,25 @@ export default function App() {
                 <h2 className="text-lg font-bold text-white">Analyzed Clips</h2>
               </div>
               {analysis.allClips.length > 0 && (
-                <span className="px-2 py-0.5 bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-500 rounded">
-                  {analysis.allClips.length} HIGHLIGHTS
-                  {hasMultipleSources && ` / ${sourceFiles.length} VIDEOS`}
-                </span>
+                <div className="flex items-center gap-2">
+                  {/* Section type breakdown when Smart Edit is used */}
+                  {analysis.allClips.some(c => c.section_type) ? (
+                    <div className="flex items-center gap-1.5 text-[10px]">
+                      <span className="text-green-400">{analysis.allClips.filter(c => c.section_type === 'highlight').length} highlights</span>
+                      <span className="text-zinc-600">|</span>
+                      <span className="text-blue-400">{analysis.allClips.filter(c => c.section_type === 'flow').length} flow</span>
+                      <span className="text-zinc-600">|</span>
+                      <span className="text-yellow-400">{analysis.allClips.filter(c => c.section_type === 'transition').length} transitions</span>
+                      <span className="text-zinc-600">|</span>
+                      <span className="text-red-400">{analysis.allClips.filter(c => c.section_type === 'dead_time').length} dead</span>
+                    </div>
+                  ) : (
+                    <span className="px-2 py-0.5 bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-500 rounded">
+                      {analysis.allClips.length} HIGHLIGHTS
+                      {hasMultipleSources && ` / ${sourceFiles.length} VIDEOS`}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
 

@@ -38,6 +38,26 @@ const clipSchema: Schema = {
         items: { type: Type.STRING },
         description: "Top 1-3 dominant colors (e.g., orange, blue, green, gray)",
       },
+      // Smart Edit Roadmap fields (all optional)
+      section_type: {
+        type: Type.STRING,
+        description: "Classification of this section's role in the edit",
+        enum: ["highlight", "flow", "transition", "dead_time"],
+      },
+      energy_level: {
+        type: Type.STRING,
+        description: "Energy/pacing level of this section",
+        enum: ["high", "medium", "low"],
+      },
+      recommendation: {
+        type: Type.STRING,
+        description: "Editing recommendation for this section",
+        enum: ["keep", "trim", "review"],
+      },
+      transition_note: {
+        type: Type.STRING,
+        description: "Notes about transition quality or suggestions (for transition sections)",
+      },
     },
     required: ["start_time", "end_time", "description", "excitement_score"],
   },
@@ -155,28 +175,59 @@ export const analyzeVideo = async (
   }
 };
 
+/** Guidelines for prompt optimization based on content category */
+const OPTIMIZATION_GUIDELINES: Record<string, string> = {
+  fpv: `Guidelines for the new version:
+1. Use professional, technical language appropriate for FPV cinematography and drone piloting.
+2. Clarify the goals (what maneuvers to pick, what to ignore).
+3. Ensure the model focuses on temporal cues specific to FPV: motor audio, motion flow, proximity to obstacles, and flight dynamics.
+4. Maintain the structure so it still works for JSON extraction.
+5. DO NOT mention the output schema itself (that is handled separately).
+6. Return ONLY the improved instruction text.`,
+
+  generic: `Guidelines for the new version:
+1. Use clear, professional language appropriate for the content type being analyzed.
+2. Clarify the goals (what moments to pick, what to ignore).
+3. Ensure the model focuses on relevant temporal cues: pacing, emotional beats, visual storytelling, audio highlights, and scene transitions.
+4. Maintain the structure so it still works for JSON extraction.
+5. DO NOT mention the output schema itself (that is handled separately).
+6. Return ONLY the improved instruction text.`,
+
+  custom: `Guidelines for the new version:
+1. Use clear, professional language appropriate for the content type being analyzed.
+2. Clarify the goals (what to pick, what to ignore).
+3. Ensure the model focuses on relevant temporal and visual cues for the described content.
+4. Maintain the structure so it still works for JSON extraction.
+5. DO NOT mention the output schema itself (that is handled separately).
+6. Return ONLY the improved instruction text.`,
+};
+
 /**
  * Uses Gemini to optimize a prompt for video analysis.
+ * @param category - The preset category ('fpv', 'generic', 'custom') to tailor optimization guidelines
  */
-export const optimizeSystemInstruction = async (apiKey: string, currentPrompt: string): Promise<string> => {
+export const optimizeSystemInstruction = async (
+  apiKey: string,
+  currentPrompt: string,
+  category: string = 'generic'
+): Promise<string> => {
   if (!apiKey) throw new Error("API Key is required for optimization");
   const ai = new GoogleGenAI({ apiKey });
 
-  const metaPrompt = `You are a world-class AI Prompt Engineer specializing in Video Multimodal Analysis. 
-Your task is to rewrite the provided "System Instruction" for Gemini to make it extremely precise, clear, and effective for identifying FPV drone maneuvers.
+  const guidelines = OPTIMIZATION_GUIDELINES[category] || OPTIMIZATION_GUIDELINES.generic;
+  const contextDescription = category === 'fpv'
+    ? 'identifying FPV drone maneuvers and cinematic moments'
+    : 'identifying key moments and highlights in video content';
+
+  const metaPrompt = `You are a world-class AI Prompt Engineer specializing in Video Multimodal Analysis.
+Your task is to rewrite the provided "System Instruction" for Gemini to make it extremely precise, clear, and effective for ${contextDescription}.
 
 Current Instruction:
 """
 ${currentPrompt}
 """
 
-Guidelines for the new version:
-1. Use professional, technical language appropriate for FPV cinematography.
-2. Clarify the goals (what to pick, what to ignore).
-3. Ensure the model focuses on temporal cues (audio spikes, motion flow).
-4. Maintain the structure so it still works for JSON extraction.
-5. DO NOT mention the output schema itself (that is handled separately).
-6. Return ONLY the improved instruction text.`;
+${guidelines}`;
 
   try {
     const response = await ai.models.generateContent({

@@ -26,9 +26,12 @@ GEMINI_API_KEY=AIza...                    # Google Gemini API key
 VITE_OPENROUTER_API_KEY=sk-or-v1-...      # OpenRouter API key
 VITE_OPENROUTER_ENDPOINT=https://openrouter.ai/api/v1
 VITE_OPENROUTER_MODEL=qwen/qwen3-vl-235b-a22b-instruct
+
+# Frame extraction (optional, for custom provider)
+VITE_FRAME_EXTRACTION_FPS=0.5             # Fixed FPS for frame extraction (default: adaptive)
 ```
 
-If not set, users can enter API keys in the Settings UI.
+If not set, users can enter API keys in the Settings UI. Frame extraction uses adaptive FPS by default (adjusts based on video length to stay under 60 frames).
 
 ## Architecture
 

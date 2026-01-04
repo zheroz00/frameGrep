@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Play, Copy, Check, Film, Sun, Cloud, Sunset, Moon } from 'lucide-react';
-import { ClipSegment, ClipMood, LightingCondition } from '../types';
+import { Play, Copy, Check, Film, Sun, Cloud, Sunset, Moon, Sparkles, Waves, ArrowRight, Trash2, Zap, Activity, Battery } from 'lucide-react';
+import { ClipSegment, ClipMood, LightingCondition, SectionType, EnergyLevel, EditRecommendation } from '../types';
 
 // Mood badge styling
 const MOOD_CONFIG: Record<ClipMood, { label: string; class: string }> = {
@@ -21,6 +21,44 @@ const LIGHTING_ICONS: Record<LightingCondition, React.ReactNode> = {
   indoor: <Moon size={10} className="text-zinc-400" />,
   mixed: <Sun size={10} className="text-zinc-400" />,
   low_light: <Moon size={10} className="text-indigo-400" />,
+};
+
+// Section type badge styling (Smart Edit Roadmap)
+const SECTION_TYPE_CONFIG: Record<SectionType, { label: string; class: string; icon: React.ReactNode }> = {
+  highlight: {
+    label: 'Highlight',
+    class: 'bg-green-500/20 text-green-400 border-green-500/30',
+    icon: <Sparkles size={10} />
+  },
+  flow: {
+    label: 'Flow',
+    class: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+    icon: <Waves size={10} />
+  },
+  transition: {
+    label: 'Transition',
+    class: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+    icon: <ArrowRight size={10} />
+  },
+  dead_time: {
+    label: 'Dead Time',
+    class: 'bg-red-500/20 text-red-400 border-red-500/30',
+    icon: <Trash2 size={10} />
+  },
+};
+
+// Energy level icons
+const ENERGY_ICONS: Record<EnergyLevel, React.ReactNode> = {
+  high: <Zap size={10} className="text-orange-400" />,
+  medium: <Activity size={10} className="text-zinc-400" />,
+  low: <Battery size={10} className="text-blue-400" />,
+};
+
+// Recommendation badge styling
+const RECOMMENDATION_CONFIG: Record<EditRecommendation, { label: string; class: string }> = {
+  keep: { label: 'Keep', class: 'bg-green-500/10 text-green-400 border-green-500/20' },
+  trim: { label: 'Trim', class: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' },
+  review: { label: 'Review', class: 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20' },
 };
 
 // Color dot styling (maps common color names to Tailwind classes)
@@ -70,10 +108,15 @@ const ClipCard: React.FC<ClipCardProps> = ({ clip, index, onPlay, isActive, file
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const activeClass = isActive ? 'border-amber-500 bg-amber-500/5' : 'border-zinc-800 hover:border-zinc-700 bg-zinc-900';
+  // Border color based on section type (dead_time gets red border)
+  const getSectionBorderClass = () => {
+    if (isActive) return 'border-amber-500 bg-amber-500/5';
+    if (clip.section_type === 'dead_time') return 'border-red-500/30 bg-red-500/5 hover:border-red-500/50';
+    return 'border-zinc-800 hover:border-zinc-700 bg-zinc-900';
+  };
 
   return (
-    <div className={`p-4 rounded-xl border transition-all duration-200 ${activeClass} flex flex-col gap-3 group`}>
+    <div className={`p-4 rounded-xl border transition-all duration-200 ${getSectionBorderClass()} flex flex-col gap-3 group`}>
       <div className="flex justify-between items-start">
         <div className="flex items-center gap-2">
           <span className="text-xs font-mono text-zinc-500">#{String(index + 1).padStart(2, '0')}</span>
@@ -91,6 +134,34 @@ const ClipCard: React.FC<ClipCardProps> = ({ clip, index, onPlay, isActive, file
         <div className="flex items-center gap-1.5 text-[10px] text-zinc-500">
           <Film size={10} />
           <span className="truncate">{clip.sourceFile}</span>
+        </div>
+      )}
+
+      {/* Smart Edit Roadmap: Section type / Energy / Recommendation row */}
+      {(clip.section_type || clip.energy_level || clip.recommendation) && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {clip.section_type && (
+            <span className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border font-medium ${SECTION_TYPE_CONFIG[clip.section_type].class}`}>
+              {SECTION_TYPE_CONFIG[clip.section_type].icon}
+              {SECTION_TYPE_CONFIG[clip.section_type].label}
+            </span>
+          )}
+          {clip.energy_level && (
+            <span className="flex items-center gap-1 text-[10px] text-zinc-500" title={`Energy: ${clip.energy_level}`}>
+              {ENERGY_ICONS[clip.energy_level]}
+              <span className="capitalize">{clip.energy_level}</span>
+            </span>
+          )}
+          {clip.recommendation && (
+            <span className={`text-[10px] px-1.5 py-0.5 rounded border ${RECOMMENDATION_CONFIG[clip.recommendation].class}`}>
+              {RECOMMENDATION_CONFIG[clip.recommendation].label}
+            </span>
+          )}
+          {clip.transition_note && (
+            <span className="text-[10px] text-zinc-500 italic" title={clip.transition_note}>
+              "{clip.transition_note}"
+            </span>
+          )}
         </div>
       )}
 

@@ -1,6 +1,12 @@
 export type ClipMood = 'intense' | 'smooth' | 'dramatic' | 'peaceful' | 'playful' | 'technical';
 export type LightingCondition = 'golden_hour' | 'midday' | 'overcast' | 'shade' | 'indoor' | 'mixed' | 'low_light';
 
+// Smart Edit Roadmap types
+export type SectionType = 'highlight' | 'flow' | 'transition' | 'dead_time';
+export type EnergyLevel = 'high' | 'medium' | 'low';
+export type EditRecommendation = 'keep' | 'trim' | 'review';
+export type ExportMode = 'highlights_only' | 'full_edit';
+
 export interface ClipSegment {
   start_time: string; // Format "MM:SS"
   end_time: string;   // Format "MM:SS"
@@ -11,6 +17,11 @@ export interface ClipSegment {
   mood?: ClipMood;
   lighting?: LightingCondition;
   dominant_colors?: string[]; // e.g., ["orange", "blue", "green"]
+  // Smart Edit Roadmap fields (all optional for backward compatibility)
+  section_type?: SectionType;
+  energy_level?: EnergyLevel;
+  recommendation?: EditRecommendation;
+  transition_note?: string; // e.g., "Good cut point", "Fade-worthy"
 }
 
 export interface AnalysisResult {

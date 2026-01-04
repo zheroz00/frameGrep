@@ -1,4 +1,4 @@
-import { ClipSegment, PromptPreset } from "../types";
+import { ClipSegment, PromptPreset, ExportMode } from "../types";
 
 const parseTimeToSeconds = (timeStr: string): number => {
   const parts = timeStr.split(':').map(Number);
@@ -83,6 +83,53 @@ export const generateFFmpegScript = (filename: string, clips: ClipSegment[], pla
   script += "\n# Concatenate all clips\n";
   script += `ffmpeg -f concat -safe 0 -i filelist.txt -c copy "supercut.mp4"\n`;
   return script;
+};
+
+/**
+ * Filters clips based on export mode
+ * - highlights_only: Keep clips without section_type OR non-dead_time sections
+ * - full_edit: Remove dead_time clips, keep everything else
+ */
+export const filterClipsForExport = (
+  clips: ClipSegment[],
+  mode: ExportMode
+): ClipSegment[] => {
+  if (mode === 'highlights_only') {
+    // Original behavior: clips without section_type or highlight/flow types
+    return clips.filter(c =>
+      !c.section_type ||
+      c.section_type === 'highlight' ||
+      c.section_type === 'flow'
+    );
+  }
+
+  // Full edit mode: remove dead_time, keep everything else
+  return clips.filter(c => c.section_type !== 'dead_time');
+};
+
+/**
+ * Generates EDL with export mode filtering
+ */
+export const generateEDLWithMode = (
+  filename: string,
+  clips: ClipSegment[],
+  mode: ExportMode
+): string => {
+  const filteredClips = filterClipsForExport(clips, mode);
+  return generateEDL(filename, filteredClips);
+};
+
+/**
+ * Generates FFmpeg script with export mode filtering
+ */
+export const generateFFmpegScriptWithMode = (
+  filename: string,
+  clips: ClipSegment[],
+  platform: 'win' | 'unix',
+  mode: ExportMode
+): string => {
+  const filteredClips = filterClipsForExport(clips, mode);
+  return generateFFmpegScript(filename, filteredClips, platform);
 };
 
 /**
