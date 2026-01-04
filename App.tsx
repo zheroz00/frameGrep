@@ -2,22 +2,25 @@ import React, { useState } from 'react';
 import {
   Upload, Zap, Video, Terminal, AlertTriangle, PlayCircle, Loader2,
   CloudUpload, Cpu, FileCode, Monitor, Sparkles, Wand2, AlertCircle,
-  X, CheckCircle2, XCircle, Film, Server, Cloud, Settings
+  X, CheckCircle2, XCircle, Film, Server, Cloud, Settings, FolderOpen
 } from 'lucide-react';
 import { optimizeSystemInstruction } from './services/geminiService';
 import VideoPlayer from './components/VideoPlayer';
 import ClipCard from './components/ClipCard';
 import PromptLab from './components/PromptLab';
 import SettingsModal from './components/settings/SettingsModal';
+import ProjectsSidebar from './components/ProjectsSidebar';
 import { usePresets } from './hooks/usePresets';
 import { useVideoAnalysis } from './hooks/useVideoAnalysis';
 import { useAppSettings } from './hooks/useAppSettings';
+import { useProjects } from './hooks/useProjects';
 import { generateEDLWithMode, generateFFmpegScriptWithMode, filterClipsForExport } from './utils/exportUtils';
-import { ExportMode } from './types';
+import { ExportMode, Project } from './types';
 
 export default function App() {
   const [isPromptLabOpen, setIsPromptLabOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isProjectsOpen, setIsProjectsOpen] = useState(false);
   const [exportMode, setExportMode] = useState<ExportMode>('highlights_only');
 
   // Custom Modal State
@@ -32,6 +35,7 @@ export default function App() {
   const presets = usePresets();
   const analysis = useVideoAnalysis();
   const appSettings = useAppSettings();
+  const projects = useProjects();
 
   // Destructure commonly used settings
   const { settings, updateProvider } = appSettings;
@@ -93,6 +97,23 @@ export default function App() {
       presets.currentMaxDuration,
       provider === 'custom' ? settings.customConfig : undefined
     );
+  };
+
+  const handleLoadProject = (project: Project) => {
+    // Load clips from saved project into the analysis state
+    analysis.loadClipsFromProject(project.clips, project.videoFilenames);
+    setIsProjectsOpen(false);
+  };
+
+  const handleConfirmAction = (action: { title: string; message: string; onConfirm: () => void }) => {
+    setConfirmAction({
+      isOpen: true,
+      ...action,
+      onConfirm: () => {
+        action.onConfirm();
+        setConfirmAction(prev => ({ ...prev, isOpen: false }));
+      }
+    });
   };
 
   const downloadFile = (content: string, filename: string) => {
@@ -193,6 +214,23 @@ export default function App() {
               </span>
             )}
 
+            {/* Projects Button */}
+            <button
+              onClick={() => setIsProjectsOpen(!isProjectsOpen)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                isProjectsOpen
+                  ? 'bg-purple-500 text-white'
+                  : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
+              }`}
+            >
+              <FolderOpen size={16} />
+              {projects.projects.length > 0 && (
+                <span className={`text-xs ${isProjectsOpen ? 'text-purple-200' : 'text-zinc-500'}`}>
+                  {projects.projects.length}
+                </span>
+              )}
+            </button>
+
             {/* Settings Button */}
             <button
               onClick={() => setIsSettingsOpen(true)}
@@ -245,6 +283,21 @@ export default function App() {
         onConnectFolder={presets.connectToLocalFolder}
         onAutoBackupChange={presets.setAutoBackupEnabled}
         onBackupNow={presets.triggerBackupNow}
+      />
+
+      {/* Projects Sidebar */}
+      <ProjectsSidebar
+        isOpen={isProjectsOpen}
+        onClose={() => setIsProjectsOpen(false)}
+        projects={projects}
+        currentClips={analysis.allClips}
+        videoFilenames={analysis.videoQueue.map(v => v.file.name)}
+        hasUnsavedChanges={analysis.allClips.length > 0 && !projects.currentProjectId}
+        activePresetId={presets.activePresetId}
+        activePresetInstruction={presets.currentInstruction}
+        provider={provider}
+        onLoadProject={handleLoadProject}
+        onConfirmAction={handleConfirmAction}
       />
 
       {/* Main Content */}

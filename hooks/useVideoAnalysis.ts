@@ -98,6 +98,7 @@ export interface UseVideoAnalysisReturn {
   ) => Promise<void>;
   handlePlayClip: (clip: ClipSegment, index: number) => void;
   setError: (error: string | null) => void;
+  loadClipsFromProject: (clips: ClipSegment[], videoFilenames: string[]) => void;
 }
 
 export function useVideoAnalysis(): UseVideoAnalysisReturn {
@@ -328,6 +329,30 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     setActiveClipIndex(index);
   }, [videoQueue]);
 
+  const loadClipsFromProject = useCallback((clips: ClipSegment[], videoFilenames: string[]) => {
+    // Clear existing queue
+    videoQueue.forEach(item => {
+      if (item.url) URL.revokeObjectURL(item.url);
+    });
+
+    // Create placeholder queue items for each video (no actual files)
+    // Group clips by their sourceFile
+    const loadedItems: VideoQueueItem[] = videoFilenames.map(filename => ({
+      id: `loaded-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      file: new File([], filename), // Placeholder file with just the name
+      url: '', // No video URL available
+      status: 'complete' as QueueItemStatus, // Already "analyzed"
+      clips: clips.filter(c => c.sourceFile === filename),
+    }));
+
+    setVideoQueue(loadedItems);
+    setActiveVideoUrl(null); // No video to preview until re-uploaded
+    setActiveVideoName(loadedItems[0]?.file.name || null);
+    setActiveClipIndex(null);
+    setStatus(AppStatus.COMPLETE);
+    setError(null);
+  }, [videoQueue]);
+
   return {
     videoQueue,
     activeVideoUrl,
@@ -350,5 +375,6 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     runAnalysis,
     handlePlayClip,
     setError,
+    loadClipsFromProject,
   };
 }

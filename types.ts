@@ -94,3 +94,16 @@ export interface AppSettings {
   geminiApiKey: string;
   customConfig: CustomProviderConfig;
 }
+
+// Saved analysis project (persisted to localStorage)
+export interface Project {
+  id: string;                    // Unique ID (timestamp-based)
+  name: string;                  // User-editable name
+  createdAt: string;             // ISO timestamp
+  updatedAt: string;             // ISO timestamp
+  clips: ClipSegment[];          // All analyzed clips
+  videoFilenames: string[];      // Original filenames (videos must be re-uploaded)
+  presetId: string;              // Preset used for analysis
+  presetInstruction: string;     // Instruction snapshot at analysis time
+  provider: AnalysisProvider;    // Provider used ('gemini' | 'custom')
+}
