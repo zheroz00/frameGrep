@@ -1,0 +1,5 @@
+# Ignore video files in transcode folders
+input/*
+output/*
+!input/.gitkeep
+!output/.gitkeep
