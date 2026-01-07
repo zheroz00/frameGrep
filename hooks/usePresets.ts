@@ -43,7 +43,7 @@ export interface UsePresetsReturn {
   savePreset: () => Promise<void>;
   deletePreset: (id: string) => { title: string; message: string; onConfirm: () => void } | null;
   resetToDefaults: () => { title: string; message: string; onConfirm: () => void };
-  handleImportPresets: (e: React.ChangeEvent<HTMLInputElement>) => string | null;
+  handleImportPresets: (e: React.ChangeEvent<HTMLInputElement>) => Promise<{ imported: number; error?: string }>;
   connectToLocalFolder: () => Promise<void>;
   triggerBackupNow: () => void;
 }
@@ -249,27 +249,40 @@ export function usePresets(): UsePresetsReturn {
     }
   });
 
-  const handleImportPresets = (e: React.ChangeEvent<HTMLInputElement>): string | null => {
+  const handleImportPresets = async (e: React.ChangeEvent<HTMLInputElement>): Promise<{ imported: number; error?: string }> => {
     const file = e.target.files?.[0];
-    if (!file) return null;
+    if (!file) return { imported: 0 };
 
-    const reader = new FileReader();
-    let error: string | null = null;
+    return new Promise((resolve) => {
+      const reader = new FileReader();
 
-    reader.onload = (event) => {
-      try {
-        const imported = JSON.parse(event.target?.result as string) as PromptPreset[];
-        const customOnly = imported.filter(p => !p.isDefault);
-        const merged = [...presets, ...customOnly];
-        const unique = merged.filter((v, i, a) => a.findIndex(t => t.id === v.id) === i);
-        setPresets(unique);
-        safeLocalStorageSet(STORAGE_KEY, JSON.stringify(unique));
-      } catch {
-        error = "Invalid preset file format.";
-      }
-    };
-    reader.readAsText(file);
-    return error;
+      reader.onload = (event) => {
+        try {
+          const imported = JSON.parse(event.target?.result as string) as PromptPreset[];
+          const customOnly = imported.filter(p => !p.isDefault);
+
+          // Track which ones are actually new (not already in presets by ID)
+          const existingIds = new Set(presets.map(p => p.id));
+          const newPresets = customOnly.filter(p => !existingIds.has(p.id));
+
+          if (newPresets.length > 0) {
+            const merged = [...presets, ...newPresets];
+            setPresets(merged);
+            safeLocalStorageSet(STORAGE_KEY, JSON.stringify(merged));
+          }
+
+          resolve({ imported: newPresets.length });
+        } catch {
+          resolve({ imported: 0, error: "Invalid preset file format." });
+        }
+      };
+
+      reader.onerror = () => {
+        resolve({ imported: 0, error: "Failed to read file." });
+      };
+
+      reader.readAsText(file);
+    });
   };
 
   return {

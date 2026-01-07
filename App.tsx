@@ -84,9 +84,16 @@ export default function App() {
     });
   };
 
-  const handleImportPresets = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const error = presets.handleImportPresets(e);
-    if (error) analysis.setError(error);
+  const handleImportPresets = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const result = await presets.handleImportPresets(e);
+    if (result.error) {
+      analysis.setError(result.error);
+    } else if (result.imported === 0) {
+      analysis.setError('No new presets to import (duplicates skipped)');
+    } else {
+      // Clear any existing error and let the UI update naturally
+      analysis.setError(null);
+    }
   };
 
   const handleRunAnalysis = () => {
