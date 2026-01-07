@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   Upload, Zap, Video, Terminal, AlertTriangle, PlayCircle, Loader2,
   CloudUpload, Cpu, FileCode, Monitor, Sparkles, Wand2, AlertCircle,
-  X, CheckCircle2, XCircle, Film, Server, Cloud, Settings, FolderOpen, Hash
+  X, CheckCircle2, XCircle, Film, Server, Cloud, Settings, FolderOpen, Hash, Music
 } from 'lucide-react';
 import { optimizeSystemInstruction } from './services/geminiService';
 import VideoPlayer from './components/VideoPlayer';
@@ -11,10 +11,12 @@ import PromptLab from './components/PromptLab';
 import SettingsModal from './components/settings/SettingsModal';
 import ProjectsSidebar from './components/ProjectsSidebar';
 import CaptionModal from './components/CaptionModal';
+import MusicPanel from './components/MusicPanel';
 import { usePresets } from './hooks/usePresets';
 import { useVideoAnalysis } from './hooks/useVideoAnalysis';
 import { useAppSettings } from './hooks/useAppSettings';
 import { useProjects } from './hooks/useProjects';
+import { useMusic } from './hooks/useMusic';
 import { generateEDLWithMode, generateFFmpegScriptWithMode, filterClipsForExport } from './utils/exportUtils';
 import { ExportMode, Project, ClipSegment, CaptionMode } from './types';
 
@@ -44,6 +46,7 @@ export default function App() {
   const analysis = useVideoAnalysis();
   const appSettings = useAppSettings();
   const projects = useProjects();
+  const music = useMusic();
 
   // Destructure commonly used settings
   const { settings, updateProvider } = appSettings;
@@ -197,6 +200,13 @@ export default function App() {
         videoFilename={sourceFiles[0]}
       />
 
+      {/* Music Panel */}
+      <MusicPanel
+        music={music}
+        clips={analysis.allClips}
+        jamendoClientId={settings.jamendoClientId}
+      />
+
       {/* Header */}
       <header className="border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
@@ -255,6 +265,22 @@ export default function App() {
                   {projects.projects.length}
                 </span>
               )}
+            </button>
+
+            {/* Music Button */}
+            <button
+              onClick={() => music.openPanel('all_clips')}
+              disabled={analysis.allClips.length === 0}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                music.isOpen
+                  ? 'bg-emerald-500 text-zinc-950'
+                  : analysis.allClips.length === 0
+                    ? 'bg-zinc-900 text-zinc-600 border border-zinc-800 cursor-not-allowed'
+                    : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
+              }`}
+              title={analysis.allClips.length === 0 ? 'Analyze clips first' : 'Find music for all clips'}
+            >
+              <Music size={16} />
             </button>
 
             {/* Settings Button */}
@@ -623,6 +649,7 @@ export default function App() {
                     filename={clip.sourceFile || 'video.mp4'}
                     onPlay={() => analysis.handlePlayClip(clip, idx)}
                     onCaption={() => setCaptionModal({ isOpen: true, clip, mode: 'clip' })}
+                    onMusic={() => music.openPanel('single_clip', idx)}
                     isActive={analysis.activeClipIndex === idx}
                     showSource={hasMultipleSources}
                   />

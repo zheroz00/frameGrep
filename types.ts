@@ -93,6 +93,7 @@ export interface AppSettings {
   provider: AnalysisProvider;
   geminiApiKey: string;
   customConfig: CustomProviderConfig;
+  jamendoClientId?: string;  // For music suggestions feature
 }
 
 // Social Media Captions (Issue #21)
@@ -117,6 +118,42 @@ export interface CaptionRequest {
   clip?: ClipSegment;           // For single clip mode
   clips?: ClipSegment[];        // For full video summary mode
   videoFilename?: string;       // Optional context
+}
+
+// Jamendo Music Integration (Issue #17 - Music Suggestions)
+export interface JamendoTrack {
+  id: string;
+  name: string;
+  artist_name: string;
+  album_name: string;
+  duration: number;          // Duration in seconds
+  audio: string;             // Streaming URL (low quality preview)
+  audiodownload: string;     // Download URL (requires attribution)
+  image: string;             // Album art URL
+  shareurl: string;          // Link to Jamendo page
+  license_ccurl: string;     // Creative Commons license URL
+  tags?: string[];           // Genre/mood tags
+  speed?: string;            // verylow, low, medium, high, veryhigh
+}
+
+export interface MusicSuggestion {
+  searchTerms: string[];     // Generated search terms for Jamendo
+  genres: string[];          // Suggested genres
+  tempo: string;             // Suggested tempo (verylow to veryhigh)
+  mood: string;              // Human-readable mood description
+  reasoning: string;         // Why these suggestions fit
+}
+
+export type MusicSearchMode = 'all_clips' | 'single_clip';
+
+export interface MusicSearchContext {
+  mode: MusicSearchMode;
+  clipIndex?: number;        // For single_clip mode
+  clips: ClipSegment[];      // Clips to analyze
+  suggestion?: MusicSuggestion;
+  tracks: JamendoTrack[];
+  isLoading: boolean;
+  error?: string;
 }
 
 // Saved analysis project (persisted to localStorage)

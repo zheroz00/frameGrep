@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { X, Save, Settings, Cloud, Server, RefreshCw, ChevronDown, Download, Upload, Database } from 'lucide-react';
+import { X, Save, Settings, Cloud, Server, RefreshCw, ChevronDown, Download, Upload, Database, Music } from 'lucide-react';
 import { UseAppSettingsReturn } from '../../hooks/useAppSettings';
 import { AnalysisProvider } from '../../types';
 import ModelSelectorModal from './ModelSelectorModal';
@@ -24,6 +24,7 @@ export default function SettingsModal({ isOpen, onClose, appSettings }: Settings
     updateProvider,
     updateGeminiApiKey,
     updateCustomConfig,
+    updateJamendoClientId,
     saveSettings,
     refreshModels
   } = appSettings;
@@ -231,6 +232,33 @@ export default function SettingsModal({ isOpen, onClose, appSettings }: Settings
                 </div>
               </>
             )}
+
+            {/* Jamendo Music Settings */}
+            <div>
+              <label className="block text-sm font-medium text-zinc-300 mb-2">
+                <Music className="w-4 h-4 inline mr-1" />
+                Music Suggestions (Jamendo)
+              </label>
+              <input
+                type="password"
+                value={settings.jamendoClientId || ''}
+                onChange={(e) => updateJamendoClientId(e.target.value)}
+                placeholder="Jamendo Client ID"
+                className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500"
+              />
+              <p className="text-xs text-zinc-500 mt-1">
+                Get your Client ID from{' '}
+                <a
+                  href="https://developer.jamendo.com/v3.0"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-emerald-400 hover:underline"
+                >
+                  Jamendo Developer Portal
+                </a>
+                . Enables AI-powered music suggestions for your clips.
+              </p>
+            </div>
 
             {/* Info Box */}
             <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">

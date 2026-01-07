@@ -8,6 +8,14 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 3006,
         host: '0.0.0.0',
+        proxy: {
+          // Proxy Jamendo API to avoid CORS/Origin issues
+          '/api/jamendo': {
+            target: 'https://api.jamendo.com',
+            changeOrigin: true,
+            rewrite: (path) => path.replace(/^\/api\/jamendo/, ''),
+          },
+        },
       },
       plugins: [react()],
       define: {
