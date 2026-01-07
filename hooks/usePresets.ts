@@ -86,7 +86,7 @@ export function usePresets(): UsePresetsReturn {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `fpv-presets-backup-${timestamp.split('T')[0]}.json`;
+    a.download = `fpv-presets-auto-backup.json`;
     a.click();
     URL.revokeObjectURL(url);
 

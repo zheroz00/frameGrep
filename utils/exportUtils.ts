@@ -133,7 +133,7 @@ export const generateFFmpegScriptWithMode = (
 };
 
 /**
- * Exports prompt presets to a JSON file
+ * Exports prompt presets to a JSON file (manual export, dated filename)
  */
 export const exportPresetsToJSON = (presets: PromptPreset[]) => {
   const data = JSON.stringify(presets, null, 2);
@@ -141,14 +141,14 @@ export const exportPresetsToJSON = (presets: PromptPreset[]) => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `fpv_presets_${new Date().toISOString().split('T')[0]}.json`;
+  a.download = `fpv-presets-${new Date().toISOString().split('T')[0]}.json`;
   a.click();
   URL.revokeObjectURL(url);
 };
 
 /**
- * Export all app data (presets + projects) as a single JSON backup file.
- * Excludes settings/API keys for security.
+ * Export all app data (presets + projects) as a single JSON file.
+ * Excludes settings/API keys for security. (manual export, dated filename)
  */
 export const exportAllAppData = () => {
   const presetsRaw = localStorage.getItem('fpv_presets');
@@ -166,7 +166,7 @@ export const exportAllAppData = () => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `fpv-ai-backup-${new Date().toISOString().split('T')[0]}.json`;
+  a.download = `fpv-all-data-${new Date().toISOString().split('T')[0]}.json`;
   a.click();
   URL.revokeObjectURL(url);
 };

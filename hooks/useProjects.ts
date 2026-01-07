@@ -86,7 +86,7 @@ export function useProjects(): UseProjectsReturn {
     projectsRef.current = projects;
   }, [projects]);
 
-  // Auto-backup function - downloads projects JSON
+  // Auto-backup function - downloads projects JSON (overwrites same file)
   const performBackup = useCallback(() => {
     const projectsToBackup = projectsRef.current;
     if (projectsToBackup.length === 0) return;
@@ -96,7 +96,7 @@ export function useProjects(): UseProjectsReturn {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `fpv-projects-backup-${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `fpv-projects-auto-backup.json`;
     a.click();
     URL.revokeObjectURL(url);
 
@@ -248,7 +248,7 @@ export function useProjects(): UseProjectsReturn {
     URL.revokeObjectURL(url);
   }, [projects]);
 
-  // Export all projects as JSON
+  // Export all projects as JSON (manual export, dated filename)
   const exportAllProjects = useCallback(() => {
     if (projects.length === 0) return;
 
@@ -257,7 +257,7 @@ export function useProjects(): UseProjectsReturn {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `fpv-projects-backup-${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `fpv-projects-${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
   }, [projects]);
