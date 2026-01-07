@@ -59,11 +59,6 @@ export function useMusic(): UseMusicReturn {
     setError(null);
   }, []);
 
-  const closePanel = useCallback(() => {
-    setIsOpen(false);
-    stopPlayback();
-  }, []);
-
   const stopPlayback = useCallback(() => {
     if (audioRef.current) {
       audioRef.current.pause();
@@ -71,6 +66,11 @@ export function useMusic(): UseMusicReturn {
     }
     setCurrentlyPlaying(null);
   }, []);
+
+  const closePanel = useCallback(() => {
+    setIsOpen(false);
+    stopPlayback();
+  }, [stopPlayback]);
 
   const playTrack = useCallback((trackId: string, audioUrl: string) => {
     // If clicking the same track, toggle playback

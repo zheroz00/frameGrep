@@ -42,7 +42,7 @@ const MusicPanel: React.FC<MusicPanelProps> = ({ music, clips, jamendoClientId }
     if (isOpen && jamendoClientId && clips.length > 0 && !suggestion && !isLoading) {
       searchMusic(jamendoClientId, clips, selectedClipIndex ?? undefined);
     }
-  }, [isOpen, jamendoClientId, clips.length, selectedClipIndex]);
+  }, [isOpen, jamendoClientId, clips, selectedClipIndex, searchMusic, suggestion, isLoading]);
 
   const handleCustomSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -148,9 +148,9 @@ const MusicPanel: React.FC<MusicPanelProps> = ({ music, clips, jamendoClientId }
                 </div>
 
                 <div className="flex flex-wrap gap-1.5">
-                  {suggestion.searchTerms.map((term, i) => (
+                  {suggestion.searchTerms.map((term) => (
                     <span
-                      key={i}
+                      key={term}
                       className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] rounded"
                     >
                       {term}
