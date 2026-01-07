@@ -171,8 +171,19 @@ export const exportAllAppData = () => {
   URL.revokeObjectURL(url);
 };
 
+/** Helper to detect if an array contains presets (has 'instruction' field) */
+const isPresetsArray = (arr: unknown[]): arr is PromptPreset[] => {
+  return arr.length > 0 && typeof (arr[0] as PromptPreset).instruction === 'string';
+};
+
+/** Helper to detect if an array contains projects (has 'clips' field) */
+const isProjectsArray = (arr: unknown[]): boolean => {
+  return arr.length > 0 && Array.isArray((arr[0] as { clips?: unknown[] }).clips);
+};
+
 /**
- * Import all app data from a backup file.
+ * Import app data from any backup file format.
+ * Auto-detects: fpv-all-data (bundle), fpv-presets (array), or fpv-projects (array).
  * Returns counts of imported items.
  */
 export const importAllAppData = async (file: File): Promise<{ presets: number; projects: number; error?: string }> => {
@@ -182,10 +193,30 @@ export const importAllAppData = async (file: File): Promise<{ presets: number; p
     reader.onload = (event) => {
       try {
         const content = event.target?.result as string;
-        const bundle = JSON.parse(content);
+        const parsed = JSON.parse(content);
 
-        // Validate bundle structure
-        if (!bundle.presets && !bundle.projects) {
+        let presetsToImport: PromptPreset[] = [];
+        let projectsToImport: { id: string; clips: unknown[] }[] = [];
+
+        // Auto-detect format
+        if (Array.isArray(parsed)) {
+          // It's a raw array - detect if presets or projects
+          if (isPresetsArray(parsed)) {
+            presetsToImport = parsed;
+          } else if (isProjectsArray(parsed)) {
+            projectsToImport = parsed as { id: string; clips: unknown[] }[];
+          } else if (parsed.length === 0) {
+            resolve({ presets: 0, projects: 0, error: 'Empty backup file' });
+            return;
+          } else {
+            resolve({ presets: 0, projects: 0, error: 'Could not detect backup type' });
+            return;
+          }
+        } else if (parsed.presets || parsed.projects) {
+          // It's a bundle format (fpv-all-data)
+          if (Array.isArray(parsed.presets)) presetsToImport = parsed.presets;
+          if (Array.isArray(parsed.projects)) projectsToImport = parsed.projects;
+        } else {
           resolve({ presets: 0, projects: 0, error: 'Invalid backup file format' });
           return;
         }
@@ -194,12 +225,12 @@ export const importAllAppData = async (file: File): Promise<{ presets: number; p
         let projectsImported = 0;
 
         // Import presets (merge with existing, avoid duplicates by ID)
-        if (bundle.presets && Array.isArray(bundle.presets)) {
+        if (presetsToImport.length > 0) {
           const existingRaw = localStorage.getItem('fpv_presets');
           const existing = existingRaw ? JSON.parse(existingRaw) : [];
           const existingIds = new Set(existing.map((p: PromptPreset) => p.id));
 
-          const newPresets = bundle.presets.filter((p: PromptPreset) => !p.isDefault && !existingIds.has(p.id));
+          const newPresets = presetsToImport.filter((p: PromptPreset) => !p.isDefault && !existingIds.has(p.id));
           if (newPresets.length > 0) {
             const merged = [...existing, ...newPresets];
             localStorage.setItem('fpv_presets', JSON.stringify(merged));
@@ -208,12 +239,12 @@ export const importAllAppData = async (file: File): Promise<{ presets: number; p
         }
 
         // Import projects (merge with existing, avoid duplicates by ID)
-        if (bundle.projects && Array.isArray(bundle.projects)) {
+        if (projectsToImport.length > 0) {
           const existingRaw = localStorage.getItem('fpv_projects');
           const existing = existingRaw ? JSON.parse(existingRaw) : [];
           const existingIds = new Set(existing.map((p: { id: string }) => p.id));
 
-          const newProjects = bundle.projects.filter((p: { id: string }) => !existingIds.has(p.id));
+          const newProjects = projectsToImport.filter((p: { id: string }) => !existingIds.has(p.id));
           if (newProjects.length > 0) {
             const merged = [...newProjects, ...existing];
             localStorage.setItem('fpv_projects', JSON.stringify(merged));

@@ -271,7 +271,7 @@ export default function SettingsModal({ isOpen, onClose, appSettings }: Settings
                   />
                 </div>
                 <p className="text-xs text-zinc-500">
-                  Export includes presets and projects. API keys are not included for security.
+                  Export includes presets and projects. Import accepts any backup file (presets, projects, or all-data).
                 </p>
                 {importStatus && (
                   <p className={`text-xs ${importStatus.startsWith('Error') ? 'text-red-400' : 'text-green-400'}`}>
