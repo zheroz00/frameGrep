@@ -138,15 +138,21 @@ export function usePresets(): UsePresetsReturn {
     checkForStoredHandle();
   }, [supportsFileSystemAccess]);
 
-  // Auto-backup function - writes to linked folder if available, otherwise downloads
-  const performBackup = useCallback(async () => {
+  // Auto-backup function - only writes silently to linked folder
+  // allowDownloadFallback: true for manual "Backup Now", false for auto-backup
+  const performBackup = useCallback(async (allowDownloadFallback = false) => {
     const presetsToBackup = presetsRef.current;
     if (presetsToBackup.length === 0) return;
 
-    const data = JSON.stringify(presetsToBackup, null, 2);
     const handle = directoryHandleRef.current;
 
-    // If we have a linked folder, write silently
+    // Auto-backup requires a linked folder (silent only)
+    if (!handle && !allowDownloadFallback) {
+      return; // No folder linked, skip auto-backup silently
+    }
+
+    const data = JSON.stringify(presetsToBackup, null, 2);
+
     if (handle) {
       try {
         const fileHandle = await handle.getFileHandle('fpv-presets-auto-backup.json', { create: true });
@@ -154,12 +160,14 @@ export function usePresets(): UsePresetsReturn {
         await writable.write(data);
         await writable.close();
       } catch (err) {
-        console.error('Silent backup failed, falling back to download:', err);
-        // Fall through to download
-        triggerDownload(data, 'fpv-presets-auto-backup.json');
+        console.error('Silent backup failed:', err);
+        if (allowDownloadFallback) {
+          triggerDownload(data, 'fpv-presets-auto-backup.json');
+        }
+        return; // Don't update timestamp on failure
       }
-    } else {
-      // No linked folder - trigger download (will show Save dialog on Windows)
+    } else if (allowDownloadFallback) {
+      // Manual backup without folder - allow download
       triggerDownload(data, 'fpv-presets-auto-backup.json');
     }
 
@@ -194,12 +202,12 @@ export function usePresets(): UsePresetsReturn {
     }, 30000);
   }, [autoBackupEnabled, performBackup]);
 
-  // Manual backup trigger
+  // Manual backup trigger - allows download fallback since user explicitly requested it
   const triggerBackupNow = useCallback(() => {
     if (backupTimeoutRef.current) {
       clearTimeout(backupTimeoutRef.current);
     }
-    performBackup();
+    performBackup(true); // Allow download if no folder linked
   }, [performBackup]);
 
   // Toggle auto-backup
