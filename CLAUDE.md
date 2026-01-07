@@ -2,6 +2,20 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Working With This User
+
+**Scope Creep Check**: The user tends to get excited when features are implemented quickly and may start requesting additional features mid-task. Before implementing new feature requests that seem to expand scope significantly, STOP and ask:
+
+1. "This sounds like a bigger feature - should we finish [current task] first and create a GitHub issue for this?"
+2. "Is this something you want right now, or should we track it for later?"
+
+Signs to watch for:
+- Requests for features unrelated to the current task
+- "What if we also..." or "Could we add..." during implementation
+- Escalating complexity (e.g., simple export → full video editor)
+
+The app's core purpose is **clip identification + music suggestion + export to external tools**. Features that turn it into a full video editor should be questioned and discussed before implementation.
+
 ## Project Overview
 
 FPV.AI Editor is a React application that uses Google's Gemini AI to analyze FPV drone footage and automatically identify highlight moments. Users upload video files, configure analysis presets, and export clips as EDL files (DaVinci Resolve/Premiere) or FFmpeg scripts.
@@ -29,6 +43,9 @@ VITE_OPENROUTER_MODEL=qwen/qwen3-vl-235b-a22b-instruct
 
 # Frame extraction (optional, for custom provider)
 VITE_FRAME_EXTRACTION_FPS=0.5             # Fixed FPS for frame extraction (default: adaptive)
+
+# Jamendo Music (optional, for music suggestions)
+VITE_JAMENDO_CLIENT_ID=4d45d0dd           # Jamendo API Client ID
 ```
 
 If not set, users can enter API keys in the Settings UI. Frame extraction uses adaptive FPS by default (adjusts based on video length to stay under 60 frames).
@@ -47,7 +64,10 @@ If not set, users can enter API keys in the Settings UI. Frame extraction uses a
 - `components/ProjectsSidebar.tsx` - Left slide-in panel for saving/loading analysis sessions
 - `components/projects/ProjectListItem.tsx` - Project card with load/delete/export/rename actions
 - `components/VideoPlayer.tsx` - HTML5 video player with segment playback (start/end time control)
-- `components/ClipCard.tsx` - Displays individual clip metadata with FFmpeg copy command, caption generation trigger
+- `components/ClipCard.tsx` - Displays individual clip metadata with FFmpeg copy command, caption/music triggers
+- `components/MusicPanel.tsx` - Slide-in panel for AI-powered music suggestions from Jamendo
+- `hooks/useMusic.ts` - Music panel state, Jamendo search, audio preview playback
+- `services/jamendoService.ts` - Jamendo API integration, music suggestion generation from clip analysis
 - `components/CaptionModal.tsx` - Social media caption generation modal with platform-specific outputs
 - `components/settings/SettingsModal.tsx` - Settings UI for provider selection, API keys, model picker, data backup
 - `components/settings/ModelSelectorModal.tsx` - OpenRouter model browser with search, filtering, pricing info
@@ -82,6 +102,13 @@ If not set, users can enter API keys in the Settings UI. Frame extraction uses a
 - Queue multiple videos for batch processing
 - Each clip tracks its `sourceFile` for multi-source exports
 - Videos processed sequentially with error isolation
+
+**Music Suggestions** (`jamendoService.ts`):
+- Analyzes clip mood, energy level, and excitement scores to generate music search terms
+- Two modes: "All Clips" (header button) for cohesive video-wide music, "Single Clip" (per-clip button) for individual ditties
+- Queries Jamendo API with generated tags (genre, mood) and speed (tempo)
+- Returns royalty-free tracks with inline audio preview
+- Music is free for personal use with attribution (Creative Commons)
 
 **AI Provider Notes**:
 - **Gemini**: Uses `gemini-2.5-flash` for native video analysis with structured JSON via `responseSchema`. Prompt optimization via `gemini-3-flash-preview` with category-aware guidelines (FPV vs generic).

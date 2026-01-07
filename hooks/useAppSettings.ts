@@ -12,7 +12,8 @@ const getDefaultSettings = (): AppSettings => ({
     endpoint: import.meta.env.VITE_OPENROUTER_ENDPOINT || 'https://openrouter.ai/api/v1',
     model: import.meta.env.VITE_OPENROUTER_MODEL || 'qwen/qwen3-vl-8b-instruct',
     apiKey: import.meta.env.VITE_OPENROUTER_API_KEY || ''
-  }
+  },
+  jamendoClientId: import.meta.env.VITE_JAMENDO_CLIENT_ID || ''
 });
 
 export interface UseAppSettingsReturn {
@@ -30,6 +31,7 @@ export interface UseAppSettingsReturn {
   updateProvider: (provider: AnalysisProvider) => void;
   updateGeminiApiKey: (key: string) => void;
   updateCustomConfig: (config: Partial<CustomProviderConfig>) => void;
+  updateJamendoClientId: (clientId: string) => void;
   saveSettings: () => void;
   resetSettings: () => void;
   refreshModels: () => Promise<void>;
@@ -128,6 +130,10 @@ export function useAppSettings(): UseAppSettingsReturn {
     }));
   }, []);
 
+  const updateJamendoClientId = useCallback((jamendoClientId: string) => {
+    setSettings(prev => ({ ...prev, jamendoClientId }));
+  }, []);
+
   const resetSettings = useCallback(() => {
     setSettings(getDefaultSettings());
     localStorage.removeItem(SETTINGS_KEY);
@@ -144,6 +150,7 @@ export function useAppSettings(): UseAppSettingsReturn {
     updateProvider,
     updateGeminiApiKey,
     updateCustomConfig,
+    updateJamendoClientId,
     saveSettings,
     resetSettings,
     refreshModels
