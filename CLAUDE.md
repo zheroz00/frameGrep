@@ -39,20 +39,23 @@ If not set, users can enter API keys in the Settings UI. Frame extraction uses a
 
 **Key Files**:
 - `App.tsx` - Main component orchestrating UI layout and connecting hooks to components
-- `hooks/usePresets.ts` - Preset state management, localStorage sync, and disk persistence
+- `hooks/usePresets.ts` - Preset state management, localStorage sync, auto-backup, and disk persistence
 - `hooks/useVideoAnalysis.ts` - Video upload, analysis routing (Gemini vs Custom), progress tracking, playback state
 - `hooks/useAppSettings.ts` - App settings (provider, API keys), localStorage persistence, OpenRouter model fetching
+- `hooks/useProjects.ts` - Project CRUD operations, localStorage persistence, auto-backup, import/export
 - `components/PromptLab.tsx` - Prompt editing panel with preset selector, duration slider, AI polish
+- `components/ProjectsSidebar.tsx` - Left slide-in panel for saving/loading analysis sessions
+- `components/projects/ProjectListItem.tsx` - Project card with load/delete/export/rename actions
 - `components/VideoPlayer.tsx` - HTML5 video player with segment playback (start/end time control)
 - `components/ClipCard.tsx` - Displays individual clip metadata with FFmpeg copy command
-- `components/settings/SettingsModal.tsx` - Settings UI for provider selection, API keys, model picker
+- `components/settings/SettingsModal.tsx` - Settings UI for provider selection, API keys, model picker, data backup
 - `components/settings/ModelSelectorModal.tsx` - OpenRouter model browser with search, filtering, pricing info
-- `services/geminiService.ts` - Gemini API integration: video upload, analysis with structured JSON output, prompt optimization
+- `services/geminiService.ts` - Gemini API integration: video upload, analysis with structured JSON output, category-aware prompt optimization
 - `services/localVLMService.ts` - Custom provider (OpenRouter/Ollama): adaptive frame extraction, VLM API calls
 - `services/openrouterService.ts` - Fetches available models from OpenRouter API with caching
-- `utils/exportUtils.ts` - EDL and FFmpeg batch script generation
+- `utils/exportUtils.ts` - EDL/FFmpeg generation, data export/import with auto-detection
 - `constants/defaultPresets.ts` - Default presets: FPV (Cinematic, Shorts, Technical, Crash) + Generic (Highlights, Tutorial, Sports, Event, B-Roll, Best Takes)
-- `types.ts` - Core interfaces: `ClipSegment`, `PromptPreset`, `VideoQueueItem`, `AppSettings`, `OpenRouterModel`
+- `types.ts` - Core interfaces: `ClipSegment`, `PromptPreset`, `VideoQueueItem`, `AppSettings`, `OpenRouterModel`, `Project`
 
 **Data Flow (Gemini - native video)**:
 1. User uploads video(s) → `uploadVideo()` sends to Gemini Files API with polling for PROCESSING state
@@ -79,9 +82,21 @@ If not set, users can enter API keys in the Settings UI. Frame extraction uses a
 - Videos processed sequentially with error isolation
 
 **AI Provider Notes**:
-- **Gemini**: Uses `gemini-2.5-flash` for native video analysis with structured JSON via `responseSchema`. Prompt optimization via `gemini-3-flash-preview`.
+- **Gemini**: Uses `gemini-2.5-flash` for native video analysis with structured JSON via `responseSchema`. Prompt optimization via `gemini-3-flash-preview` with category-aware guidelines (FPV vs generic).
 - **Custom (OpenRouter/Ollama)**: OpenAI-compatible API. Default model `qwen/qwen3-vl-235b-a22b-instruct`. Uses frame extraction since these APIs don't support video upload.
 - Clips use "MM:SS" time format internally across all providers
+
+**Data Persistence**:
+- All app data stored in browser localStorage (keys: `fpv_presets`, `fpv_projects`, `fpv_settings`)
+- Presets: Custom presets saved alongside defaults. Editing a default preset saves modified version.
+- Projects: Save analysis sessions (clips + metadata) for later reload. Videos must be re-uploaded.
+- Auto-backup: Optional feature that downloads JSON backup 30s after changes (debounced)
+- Export/Import: Settings modal provides unified backup (`fpv-all-data-*.json`) that includes presets + projects
+
+**Backup File Naming**:
+- Manual exports: Dated filenames (`fpv-presets-2024-01-07.json`, `fpv-projects-2024-01-07.json`)
+- Auto-backups: Static filenames that overwrite (`fpv-presets-auto-backup.json`, `fpv-projects-auto-backup.json`)
+- Import auto-detects format (bundle, presets-only, or projects-only)
 
 **Path Alias**: `@/*` maps to project root (configured in tsconfig.json and vite.config.ts)
 
