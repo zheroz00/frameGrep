@@ -86,6 +86,125 @@ export const generateFFmpegScript = (filename: string, clips: ClipSegment[], pla
 };
 
 /**
+ * Converts seconds to FCPXML rational time format (frames/fps)
+ * FCPXML uses "numerator/denominator s" format, e.g., "3600/24s" = 150 seconds at 24fps
+ */
+const secondsToFCPXMLTime = (seconds: number, fps: number = 24): string => {
+  const frames = Math.round(seconds * fps);
+  return `${frames}/${fps}s`;
+};
+
+/**
+ * Escapes special characters for XML attribute values
+ */
+const escapeXMLAttr = (str: string): string => {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+};
+
+/**
+ * Generates FCPXML 1.9 for DaVinci Resolve / Final Cut Pro import.
+ * Creates a timeline with all clips in sequence, including markers with descriptions.
+ * Uses filenames only for media references (user relinks in NLE).
+ */
+export const generateFCPXML = (projectName: string, clips: ClipSegment[]): string => {
+  const fps = 24;
+  const frameDuration = `100/${fps * 100}s`; // "100/2400s" for 24fps
+
+  // Collect unique source files and create asset IDs
+  const sourceFiles = new Set<string>();
+  clips.forEach(clip => {
+    sourceFiles.add(clip.sourceFile || 'video.mp4');
+  });
+
+  // Create asset map: filename -> asset ID (r2, r3, r4, ...)
+  const assetMap = new Map<string, string>();
+  let assetId = 2; // r1 is reserved for format
+  sourceFiles.forEach(file => {
+    assetMap.set(file, `r${assetId}`);
+    assetId++;
+  });
+
+  // Build resources section
+  let resources = `    <format id="r1" name="FFVideoFormat1080p${fps}" frameDuration="${frameDuration}" width="1920" height="1080"/>\n`;
+
+  sourceFiles.forEach(file => {
+    const id = assetMap.get(file)!;
+    const escapedName = escapeXMLAttr(file);
+    resources += `    <asset id="${id}" name="${escapedName}" src="file:///${escapedName}" hasVideo="1" hasAudio="1">\n`;
+    resources += `      <media-rep kind="original-media" src="file:///${escapedName}"/>\n`;
+    resources += `    </asset>\n`;
+  });
+
+  // Build spine with clips
+  let spine = '';
+  let timelineOffset = 0;
+
+  clips.forEach((clip, index) => {
+    const sourceFile = clip.sourceFile || 'video.mp4';
+    const assetRef = assetMap.get(sourceFile)!;
+
+    const startSec = parseTimeToSeconds(clip.start_time);
+    const endSec = parseTimeToSeconds(clip.end_time);
+    const duration = endSec - startSec;
+
+    if (duration <= 0) return; // Skip invalid clips
+
+    const clipName = escapeXMLAttr(`Clip ${index + 1}`);
+    const offsetTime = secondsToFCPXMLTime(timelineOffset, fps);
+    const startTime = secondsToFCPXMLTime(startSec, fps);
+    const durationTime = secondsToFCPXMLTime(duration, fps);
+    const markerText = escapeXMLAttr(clip.description || `Clip ${index + 1}`);
+
+    spine += `          <asset-clip ref="${assetRef}" offset="${offsetTime}" name="${clipName}" start="${startTime}" duration="${durationTime}">\n`;
+    spine += `            <marker start="0s" duration="1/${fps}s" value="${markerText}"/>\n`;
+    spine += `          </asset-clip>\n`;
+
+    timelineOffset += duration;
+  });
+
+  // Calculate total duration
+  const totalDuration = secondsToFCPXMLTime(timelineOffset, fps);
+  const escapedProjectName = escapeXMLAttr(projectName);
+
+  // Assemble full FCPXML
+  const fcpxml = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE fcpxml>
+<fcpxml version="1.9">
+  <resources>
+${resources}  </resources>
+  <library>
+    <event name="${escapedProjectName}">
+      <project name="${escapedProjectName}">
+        <sequence format="r1" duration="${totalDuration}" tcStart="0s" tcFormat="NDF">
+          <spine>
+${spine}          </spine>
+        </sequence>
+      </project>
+    </event>
+  </library>
+</fcpxml>`;
+
+  return fcpxml;
+};
+
+/**
+ * Generates FCPXML with export mode filtering
+ */
+export const generateFCPXMLWithMode = (
+  projectName: string,
+  clips: ClipSegment[],
+  mode: ExportMode
+): string => {
+  const filteredClips = filterClipsForExport(clips, mode);
+  return generateFCPXML(projectName, filteredClips);
+};
+
+/**
  * Filters clips based on export mode
  * - highlights_only: Keep clips without section_type OR non-dead_time sections
  * - full_edit: Remove dead_time clips, keep everything else

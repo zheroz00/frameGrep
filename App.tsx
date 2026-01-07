@@ -17,7 +17,7 @@ import { useVideoAnalysis } from './hooks/useVideoAnalysis';
 import { useAppSettings } from './hooks/useAppSettings';
 import { useProjects } from './hooks/useProjects';
 import { useMusic } from './hooks/useMusic';
-import { generateEDLWithMode, generateFFmpegScriptWithMode, filterClipsForExport } from './utils/exportUtils';
+import { generateEDLWithMode, generateFFmpegScriptWithMode, generateFCPXMLWithMode, filterClipsForExport } from './utils/exportUtils';
 import { ExportMode, Project, ClipSegment, CaptionMode } from './types';
 
 export default function App() {
@@ -549,6 +549,13 @@ export default function App() {
                         className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs rounded flex items-center gap-2 transition-colors"
                       >
                         <FileCode size={12} /> FFmpeg
+                      </button>
+                      <button
+                        onClick={() => downloadFile(generateFCPXMLWithMode('FPV_Supercut', analysis.allClips, exportMode), 'FPV_Supercut.fcpxml')}
+                        className="px-3 py-1.5 bg-orange-500/10 border border-orange-500/30 hover:bg-orange-500/20 text-orange-400 text-xs rounded flex items-center gap-2 transition-colors"
+                        title="Export as FCPXML for DaVinci Resolve"
+                      >
+                        <Film size={12} /> DaVinci
                       </button>
                       <button
                         onClick={() => setCaptionModal({ isOpen: true, mode: 'video' })}

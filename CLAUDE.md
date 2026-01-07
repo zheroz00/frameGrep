@@ -75,7 +75,7 @@ If not set, users can enter API keys in the Settings UI. Frame extraction uses a
 - `services/localVLMService.ts` - Custom provider (OpenRouter/Ollama): adaptive frame extraction, VLM API calls
 - `services/openrouterService.ts` - Fetches available models from OpenRouter API with caching
 - `services/captionService.ts` - AI-generated social media captions for clips/videos (Instagram, TikTok, YouTube, Twitter)
-- `utils/exportUtils.ts` - EDL/FFmpeg generation, data export/import with auto-detection
+- `utils/exportUtils.ts` - EDL/FFmpeg/FCPXML generation, data export/import with auto-detection
 - `constants/defaultPresets.ts` - Default presets: FPV (Cinematic, Shorts, Technical, Crash) + Generic (Highlights, Tutorial, Sports, Event, B-Roll, Best Takes)
 - `types.ts` - Core interfaces: `ClipSegment`, `PromptPreset`, `VideoQueueItem`, `AppSettings`, `OpenRouterModel`, `Project`, `SocialCaptions`
 
@@ -83,7 +83,7 @@ If not set, users can enter API keys in the Settings UI. Frame extraction uses a
 1. User uploads video(s) → `uploadVideo()` sends to Gemini Files API with polling for PROCESSING state
 2. User triggers analysis → `analyzeVideo()` sends video URI + system instruction to Gemini with JSON schema
 3. Response parsed into `ClipSegment[]` (start_time, end_time, description, excitement_score, mood, lighting, dominant_colors)
-4. User exports as EDL or FFmpeg script via `exportUtils`
+4. User exports as EDL, FFmpeg script, or FCPXML (DaVinci Resolve) via `exportUtils`
 
 **Data Flow (Custom/OpenRouter - frame extraction)**:
 1. User uploads video(s) → stored as local blob URLs
