@@ -5,6 +5,33 @@ const STORAGE_KEY = 'fpv_projects';
 const AUTO_BACKUP_KEY = 'fpv_projects_auto_backup';
 const LAST_BACKUP_KEY = 'fpv_projects_last_backup';
 
+// IndexedDB constants - shared with usePresets for directory handle
+const IDB_DB_NAME = 'fpv_editor_db';
+const IDB_STORE_NAME = 'handles';
+const IDB_HANDLE_KEY = 'directoryHandle';
+
+// Retrieve directory handle from IndexedDB (shared with usePresets)
+const getStoredDirectoryHandle = async (): Promise<FileSystemDirectoryHandle | null> => {
+  try {
+    return new Promise((resolve) => {
+      const request = indexedDB.open(IDB_DB_NAME, 1);
+      request.onerror = () => resolve(null);
+      request.onsuccess = () => {
+        const db = request.result;
+        const tx = db.transaction(IDB_STORE_NAME, 'readonly');
+        const getRequest = tx.objectStore(IDB_STORE_NAME).get(IDB_HANDLE_KEY);
+        getRequest.onsuccess = () => resolve(getRequest.result || null);
+        getRequest.onerror = () => resolve(null);
+      };
+      request.onupgradeneeded = () => {
+        request.result.createObjectStore(IDB_STORE_NAME);
+      };
+    });
+  } catch {
+    return null;
+  }
+};
+
 /** Safe localStorage write that handles quota errors */
 const safeLocalStorageSet = (key: string, value: string): boolean => {
   try {
@@ -80,25 +107,66 @@ export function useProjects(): UseProjectsReturn {
   });
   const projectsRef = useRef<Project[]>([]);
   const backupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const directoryHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
 
   // Keep ref in sync
   useEffect(() => {
     projectsRef.current = projects;
   }, [projects]);
 
-  // Auto-backup function - downloads projects JSON (overwrites same file)
-  const performBackup = useCallback(() => {
-    const projectsToBackup = projectsRef.current;
-    if (projectsToBackup.length === 0) return;
+  // Retrieve directory handle from IndexedDB on mount (for silent backups)
+  useEffect(() => {
+    const loadHandle = async () => {
+      const handle = await getStoredDirectoryHandle();
+      if (handle) {
+        try {
+          // @ts-ignore - requestPermission may not be in types
+          const permission = await handle.requestPermission({ mode: 'readwrite' });
+          if (permission === 'granted') {
+            directoryHandleRef.current = handle;
+          }
+        } catch {
+          // Permission denied or handle invalid
+        }
+      }
+    };
+    loadHandle();
+  }, []);
 
-    const data = JSON.stringify(projectsToBackup, null, 2);
+  // Helper to trigger download
+  const triggerDownload = (data: string, filename: string) => {
     const blob = new Blob([data], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `fpv-projects-auto-backup.json`;
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  // Auto-backup function - writes to linked folder if available, otherwise downloads
+  const performBackup = useCallback(async () => {
+    const projectsToBackup = projectsRef.current;
+    if (projectsToBackup.length === 0) return;
+
+    const data = JSON.stringify(projectsToBackup, null, 2);
+    const handle = directoryHandleRef.current;
+
+    // If we have a linked folder, write silently
+    if (handle) {
+      try {
+        const fileHandle = await handle.getFileHandle('fpv-projects-auto-backup.json', { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(data);
+        await writable.close();
+      } catch (err) {
+        console.error('Silent backup failed, falling back to download:', err);
+        triggerDownload(data, 'fpv-projects-auto-backup.json');
+      }
+    } else {
+      // No linked folder - trigger download (will show Save dialog on Windows)
+      triggerDownload(data, 'fpv-projects-auto-backup.json');
+    }
 
     const timeStr = new Date().toLocaleString();
     setLastBackupTime(timeStr);

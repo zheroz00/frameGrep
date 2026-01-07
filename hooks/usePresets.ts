@@ -106,11 +106,16 @@ export function usePresets(): UsePresetsReturn {
   const importInputRef = useRef<HTMLInputElement>(null);
   const backupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const presetsRef = useRef<PromptPreset[]>([]);
+  const directoryHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
 
-  // Keep presetsRef in sync for use in callbacks
+  // Keep refs in sync for use in callbacks
   useEffect(() => {
     presetsRef.current = presets;
   }, [presets]);
+
+  useEffect(() => {
+    directoryHandleRef.current = directoryHandle;
+  }, [directoryHandle]);
 
   const supportsFileSystemAccess = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
 
@@ -138,25 +143,46 @@ export function usePresets(): UsePresetsReturn {
     restoreHandle();
   }, [supportsFileSystemAccess]);
 
-  // Auto-backup function - downloads presets JSON
-  const performBackup = useCallback(() => {
+  // Auto-backup function - writes to linked folder if available, otherwise downloads
+  const performBackup = useCallback(async () => {
     const presetsToBackup = presetsRef.current;
     if (presetsToBackup.length === 0) return;
 
-    const timestamp = new Date().toISOString();
     const data = JSON.stringify(presetsToBackup, null, 2);
-    const blob = new Blob([data], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `fpv-presets-auto-backup.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const handle = directoryHandleRef.current;
+
+    // If we have a linked folder, write silently
+    if (handle) {
+      try {
+        const fileHandle = await handle.getFileHandle('fpv-presets-auto-backup.json', { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(data);
+        await writable.close();
+      } catch (err) {
+        console.error('Silent backup failed, falling back to download:', err);
+        // Fall through to download
+        triggerDownload(data, 'fpv-presets-auto-backup.json');
+      }
+    } else {
+      // No linked folder - trigger download (will show Save dialog on Windows)
+      triggerDownload(data, 'fpv-presets-auto-backup.json');
+    }
 
     const timeStr = new Date().toLocaleString();
     setLastBackupTime(timeStr);
     localStorage.setItem(LAST_BACKUP_KEY, timeStr);
   }, []);
+
+  // Helper to trigger download
+  const triggerDownload = (data: string, filename: string) => {
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   // Debounced auto-backup trigger
   const triggerAutoBackup = useCallback(() => {
