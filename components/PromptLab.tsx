@@ -23,6 +23,7 @@ interface PromptLabProps {
   isOptimizing: boolean;
   apiKey: string;
   directoryHandle: FileSystemDirectoryHandle | null;
+  hasPendingHandle: boolean;
   supportsFileSystemAccess: boolean;
   importInputRef: React.RefObject<HTMLInputElement | null>;
   autoBackupEnabled: boolean;
@@ -54,6 +55,7 @@ const PromptLab: React.FC<PromptLabProps> = ({
   isOptimizing,
   apiKey,
   directoryHandle,
+  hasPendingHandle,
   supportsFileSystemAccess,
   importInputRef,
   autoBackupEnabled,
@@ -121,11 +123,21 @@ const PromptLab: React.FC<PromptLabProps> = ({
                 <button
                   onClick={onConnectFolder}
                   className={`flex items-center gap-2 text-xs font-medium transition-colors ${
-                    directoryHandle ? 'text-green-500' : 'text-zinc-500 hover:text-white'
+                    directoryHandle
+                      ? 'text-green-500'
+                      : hasPendingHandle
+                      ? 'text-amber-500 hover:text-amber-400'
+                      : 'text-zinc-500 hover:text-white'
                   }`}
                 >
-                  {directoryHandle ? <CheckCircle2 size={14} /> : <HardDrive size={14} />}
-                  {directoryHandle ? 'Linked' : 'Link Disk'}
+                  {directoryHandle ? (
+                    <CheckCircle2 size={14} />
+                  ) : hasPendingHandle ? (
+                    <RefreshCw size={14} />
+                  ) : (
+                    <HardDrive size={14} />
+                  )}
+                  {directoryHandle ? 'Linked' : hasPendingHandle ? 'Reconnect' : 'Link Disk'}
                 </button>
               </>
             )}

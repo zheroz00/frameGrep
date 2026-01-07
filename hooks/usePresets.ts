@@ -68,6 +68,7 @@ export interface UsePresetsReturn {
   newPresetName: string;
   isOptimizing: boolean;
   directoryHandle: FileSystemDirectoryHandle | null;
+  hasPendingHandle: boolean; // True if there's a stored handle that needs user click to reconnect
   supportsFileSystemAccess: boolean;
   importInputRef: React.RefObject<HTMLInputElement | null>;
   autoBackupEnabled: boolean;
@@ -96,6 +97,8 @@ export function usePresets(): UsePresetsReturn {
   const [newPresetName, setNewPresetName] = useState('');
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [directoryHandle, setDirectoryHandle] = useState<FileSystemDirectoryHandle | null>(null);
+  const [hasPendingHandle, setHasPendingHandle] = useState(false);
+  const pendingHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
   const [autoBackupEnabled, setAutoBackupEnabledState] = useState(() => {
     const saved = localStorage.getItem(AUTO_BACKUP_KEY);
     return saved === 'true';
@@ -119,28 +122,20 @@ export function usePresets(): UsePresetsReturn {
 
   const supportsFileSystemAccess = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
 
-  // Restore directory handle from IndexedDB on mount
+  // Check for stored directory handle on mount (don't request permission - needs user click)
   useEffect(() => {
     if (!supportsFileSystemAccess) return;
 
-    const restoreHandle = async () => {
+    const checkForStoredHandle = async () => {
       const storedHandle = await getStoredDirectoryHandle();
-      if (!storedHandle) return;
-
-      try {
-        // Request permission to use the stored handle
-        // @ts-ignore - requestPermission may not be in types
-        const permission = await storedHandle.requestPermission({ mode: 'readwrite' });
-        if (permission === 'granted') {
-          setDirectoryHandle(storedHandle);
-        }
-      } catch (err) {
-        // User denied or handle is no longer valid
-        console.log('Could not restore directory handle:', err);
+      if (storedHandle) {
+        // Store for later reconnection on user click
+        pendingHandleRef.current = storedHandle;
+        setHasPendingHandle(true);
       }
     };
 
-    restoreHandle();
+    checkForStoredHandle();
   }, [supportsFileSystemAccess]);
 
   // Auto-backup function - writes to linked folder if available, otherwise downloads
@@ -261,12 +256,36 @@ export function usePresets(): UsePresetsReturn {
 
   const connectToLocalFolder = async () => {
     if (!supportsFileSystemAccess) return;
+
+    // If we have a pending handle from a previous session, try to reconnect first
+    if (pendingHandleRef.current) {
+      try {
+        // @ts-ignore - requestPermission may not be in types
+        const permission = await pendingHandleRef.current.requestPermission({ mode: 'readwrite' });
+        if (permission === 'granted') {
+          setDirectoryHandle(pendingHandleRef.current);
+          directoryHandleRef.current = pendingHandleRef.current;
+          setHasPendingHandle(false);
+          pendingHandleRef.current = null;
+          return; // Successfully reconnected
+        }
+      } catch (err) {
+        // Permission denied or handle invalid - fall through to show picker
+        console.log('Reconnection failed, showing folder picker:', err);
+        pendingHandleRef.current = null;
+        setHasPendingHandle(false);
+      }
+    }
+
+    // Show folder picker for new connection
     try {
       // @ts-ignore - showDirectoryPicker may not be in types
       const handle = await window.showDirectoryPicker();
       setDirectoryHandle(handle);
+      directoryHandleRef.current = handle;
       // Persist handle to IndexedDB for restoration on reload
       await storeDirectoryHandle(handle);
+      setHasPendingHandle(false);
       for (const p of presets) {
         await syncToDisk(p);
       }
@@ -386,6 +405,7 @@ export function usePresets(): UsePresetsReturn {
     newPresetName,
     isOptimizing,
     directoryHandle,
+    hasPendingHandle,
     supportsFileSystemAccess,
     importInputRef,
     autoBackupEnabled,

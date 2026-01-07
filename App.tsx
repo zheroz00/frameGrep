@@ -291,6 +291,7 @@ export default function App() {
         isOptimizing={presets.isOptimizing}
         apiKey={settings.geminiApiKey}
         directoryHandle={presets.directoryHandle}
+        hasPendingHandle={presets.hasPendingHandle}
         supportsFileSystemAccess={presets.supportsFileSystemAccess}
         importInputRef={presets.importInputRef}
         autoBackupEnabled={presets.autoBackupEnabled}

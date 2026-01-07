@@ -47,15 +47,17 @@ If not set, users can enter API keys in the Settings UI. Frame extraction uses a
 - `components/ProjectsSidebar.tsx` - Left slide-in panel for saving/loading analysis sessions
 - `components/projects/ProjectListItem.tsx` - Project card with load/delete/export/rename actions
 - `components/VideoPlayer.tsx` - HTML5 video player with segment playback (start/end time control)
-- `components/ClipCard.tsx` - Displays individual clip metadata with FFmpeg copy command
+- `components/ClipCard.tsx` - Displays individual clip metadata with FFmpeg copy command, caption generation trigger
+- `components/CaptionModal.tsx` - Social media caption generation modal with platform-specific outputs
 - `components/settings/SettingsModal.tsx` - Settings UI for provider selection, API keys, model picker, data backup
 - `components/settings/ModelSelectorModal.tsx` - OpenRouter model browser with search, filtering, pricing info
 - `services/geminiService.ts` - Gemini API integration: video upload, analysis with structured JSON output, category-aware prompt optimization
 - `services/localVLMService.ts` - Custom provider (OpenRouter/Ollama): adaptive frame extraction, VLM API calls
 - `services/openrouterService.ts` - Fetches available models from OpenRouter API with caching
+- `services/captionService.ts` - AI-generated social media captions for clips/videos (Instagram, TikTok, YouTube, Twitter)
 - `utils/exportUtils.ts` - EDL/FFmpeg generation, data export/import with auto-detection
 - `constants/defaultPresets.ts` - Default presets: FPV (Cinematic, Shorts, Technical, Crash) + Generic (Highlights, Tutorial, Sports, Event, B-Roll, Best Takes)
-- `types.ts` - Core interfaces: `ClipSegment`, `PromptPreset`, `VideoQueueItem`, `AppSettings`, `OpenRouterModel`, `Project`
+- `types.ts` - Core interfaces: `ClipSegment`, `PromptPreset`, `VideoQueueItem`, `AppSettings`, `OpenRouterModel`, `Project`, `SocialCaptions`
 
 **Data Flow (Gemini - native video)**:
 1. User uploads video(s) → `uploadVideo()` sends to Gemini Files API with polling for PROCESSING state
@@ -90,7 +92,9 @@ If not set, users can enter API keys in the Settings UI. Frame extraction uses a
 - All app data stored in browser localStorage (keys: `fpv_presets`, `fpv_projects`, `fpv_settings`)
 - Presets: Custom presets saved alongside defaults. Editing a default preset saves modified version.
 - Projects: Save analysis sessions (clips + metadata) for later reload. Videos must be re-uploaded.
-- Auto-backup: Optional feature that downloads JSON backup 30s after changes (debounced)
+- Auto-backup: Optional feature that saves JSON backup 30s after changes (debounced)
+- Folder linking: Link a local folder via File System Access API for silent auto-backups (no download dialogs)
+- Directory handles persisted to IndexedDB; requires one-click "Reconnect" after page refresh (browser security)
 - Export/Import: Settings modal provides unified backup (`fpv-all-data-*.json`) that includes presets + projects
 
 **Backup File Naming**:
