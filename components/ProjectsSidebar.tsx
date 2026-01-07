@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import {
-  FolderOpen, X, Download, Upload, Save, Film, Clock, AlertCircle
+  FolderOpen, X, Download, Upload, Save, Film, Clock, AlertCircle, CheckCircle2, HardDrive
 } from 'lucide-react';
 import { Project, ClipSegment, AnalysisProvider } from '../types';
 import { UseProjectsReturn, ProjectMetadata } from '../hooks/useProjects';
@@ -271,6 +271,49 @@ const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
                 ))}
               </div>
             )}
+          </div>
+
+          {/* Auto-Backup Section */}
+          <div className="p-4 border-t border-zinc-800">
+            <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-3">
+              Auto-Backup
+            </h4>
+            <div className="space-y-3">
+              <label className="flex items-center justify-between cursor-pointer">
+                <div className="flex items-center gap-2">
+                  <HardDrive size={14} className="text-zinc-500" />
+                  <span className="text-xs text-zinc-300">Auto-backup on changes</span>
+                </div>
+                <button
+                  onClick={() => projects.setAutoBackupEnabled(!projects.autoBackupEnabled)}
+                  className={`relative w-9 h-5 rounded-full transition-colors ${
+                    projects.autoBackupEnabled ? 'bg-purple-500' : 'bg-zinc-700'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                      projects.autoBackupEnabled ? 'translate-x-4' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </label>
+
+              {projects.lastBackupTime && (
+                <div className="flex items-center gap-2 text-[10px] text-zinc-500">
+                  <CheckCircle2 size={12} className="text-green-500" />
+                  <span>Last backup: {projects.lastBackupTime}</span>
+                </div>
+              )}
+
+              <button
+                onClick={() => projects.triggerBackupNow()}
+                disabled={projects.projects.length === 0}
+                className="w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-xs rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Download size={12} />
+                Backup Now
+              </button>
+            </div>
           </div>
         </div>
       </div>

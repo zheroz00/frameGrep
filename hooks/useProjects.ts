@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Project, ClipSegment, AnalysisProvider } from '../types';
 
 const STORAGE_KEY = 'fpv_projects';
+const AUTO_BACKUP_KEY = 'fpv_projects_auto_backup';
+const LAST_BACKUP_KEY = 'fpv_projects_last_backup';
 
 /** Safe localStorage write that handles quota errors */
 const safeLocalStorageSet = (key: string, value: string): boolean => {
@@ -42,6 +44,8 @@ export interface UseProjectsReturn {
   projects: Project[];
   currentProjectId: string | null;
   isLoading: boolean;
+  autoBackupEnabled: boolean;
+  lastBackupTime: string | null;
 
   // Actions
   createProject: (clips: ClipSegment[], videoFilenames: string[], metadata: ProjectMetadata, name?: string) => Project;
@@ -57,18 +61,78 @@ export interface UseProjectsReturn {
   exportProject: (id: string) => void;
   exportAllProjects: () => void;
   importProjects: (file: File) => Promise<{ imported: number; errors: string[] }>;
+
+  // Auto-backup
+  setAutoBackupEnabled: (enabled: boolean) => void;
+  triggerBackupNow: () => void;
 }
 
 export function useProjects(): UseProjectsReturn {
   const [projects, setProjects] = useState<Project[]>([]);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [autoBackupEnabled, setAutoBackupEnabledState] = useState(() => {
+    const saved = localStorage.getItem(AUTO_BACKUP_KEY);
+    return saved === 'true';
+  });
+  const [lastBackupTime, setLastBackupTime] = useState<string | null>(() => {
+    return localStorage.getItem(LAST_BACKUP_KEY);
+  });
   const projectsRef = useRef<Project[]>([]);
+  const backupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Keep ref in sync
   useEffect(() => {
     projectsRef.current = projects;
   }, [projects]);
+
+  // Auto-backup function - downloads projects JSON
+  const performBackup = useCallback(() => {
+    const projectsToBackup = projectsRef.current;
+    if (projectsToBackup.length === 0) return;
+
+    const data = JSON.stringify(projectsToBackup, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `fpv-projects-backup-${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    const timeStr = new Date().toLocaleString();
+    setLastBackupTime(timeStr);
+    localStorage.setItem(LAST_BACKUP_KEY, timeStr);
+  }, []);
+
+  // Debounced auto-backup trigger
+  const triggerAutoBackup = useCallback(() => {
+    if (!autoBackupEnabled) return;
+
+    // Clear existing timeout
+    if (backupTimeoutRef.current) {
+      clearTimeout(backupTimeoutRef.current);
+    }
+
+    // Debounce: wait 30 seconds after last change before backing up
+    backupTimeoutRef.current = setTimeout(() => {
+      performBackup();
+    }, 30000);
+  }, [autoBackupEnabled, performBackup]);
+
+  // Manual backup trigger
+  const triggerBackupNow = useCallback(() => {
+    if (backupTimeoutRef.current) {
+      clearTimeout(backupTimeoutRef.current);
+    }
+    performBackup();
+  }, [performBackup]);
+
+  // Toggle auto-backup
+  const setAutoBackupEnabled = useCallback((enabled: boolean) => {
+    setAutoBackupEnabledState(enabled);
+    localStorage.setItem(AUTO_BACKUP_KEY, String(enabled));
+  }, []);
 
   // Load projects on mount
   useEffect(() => {
@@ -114,9 +178,10 @@ export function useProjects(): UseProjectsReturn {
     setProjects(updated);
     setCurrentProjectId(newProject.id);
     saveToStorage(updated);
+    triggerAutoBackup();
 
     return newProject;
-  }, [projects, saveToStorage]);
+  }, [projects, saveToStorage, triggerAutoBackup]);
 
   // Update existing project's clips
   const updateProject = useCallback((id: string, clips: ClipSegment[]) => {
@@ -127,7 +192,8 @@ export function useProjects(): UseProjectsReturn {
     );
     setProjects(updated);
     saveToStorage(updated);
-  }, [projects, saveToStorage]);
+    triggerAutoBackup();
+  }, [projects, saveToStorage, triggerAutoBackup]);
 
   // Delete project (returns confirmation dialog config)
   const deleteProject = useCallback((id: string) => {
@@ -144,9 +210,10 @@ export function useProjects(): UseProjectsReturn {
           setCurrentProjectId(null);
         }
         saveToStorage(updated);
+        triggerAutoBackup();
       }
     };
-  }, [projects, currentProjectId, saveToStorage]);
+  }, [projects, currentProjectId, saveToStorage, triggerAutoBackup]);
 
   // Rename project
   const renameProject = useCallback((id: string, name: string) => {
@@ -157,7 +224,8 @@ export function useProjects(): UseProjectsReturn {
     );
     setProjects(updated);
     saveToStorage(updated);
-  }, [projects, saveToStorage]);
+    triggerAutoBackup();
+  }, [projects, saveToStorage, triggerAutoBackup]);
 
   // Get current project
   const getCurrentProject = useCallback((): Project | null => {
@@ -229,6 +297,7 @@ export function useProjects(): UseProjectsReturn {
             const updated = [...validProjects, ...projects];
             setProjects(updated);
             saveToStorage(updated);
+            triggerAutoBackup();
           }
 
           resolve({ imported, errors });
@@ -244,12 +313,14 @@ export function useProjects(): UseProjectsReturn {
 
       reader.readAsText(file);
     });
-  }, [projects, saveToStorage]);
+  }, [projects, saveToStorage, triggerAutoBackup]);
 
   return {
     projects,
     currentProjectId,
     isLoading,
+    autoBackupEnabled,
+    lastBackupTime,
     createProject,
     updateProject,
     deleteProject,
@@ -259,5 +330,7 @@ export function useProjects(): UseProjectsReturn {
     exportProject,
     exportAllProjects,
     importProjects,
+    setAutoBackupEnabled,
+    triggerBackupNow,
   };
 }

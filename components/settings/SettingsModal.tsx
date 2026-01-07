@@ -1,8 +1,9 @@
-import { useState } from 'react';
-import { X, Save, Settings, Cloud, Server, RefreshCw, ChevronDown } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { X, Save, Settings, Cloud, Server, RefreshCw, ChevronDown, Download, Upload, Database } from 'lucide-react';
 import { UseAppSettingsReturn } from '../../hooks/useAppSettings';
 import { AnalysisProvider } from '../../types';
 import ModelSelectorModal from './ModelSelectorModal';
+import { exportAllAppData, importAllAppData } from '../../utils/exportUtils';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -12,6 +13,8 @@ interface SettingsModalProps {
 
 export default function SettingsModal({ isOpen, onClose, appSettings }: SettingsModalProps) {
   const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
+  const [importStatus, setImportStatus] = useState<string | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   const {
     settings,
@@ -28,6 +31,30 @@ export default function SettingsModal({ isOpen, onClose, appSettings }: Settings
   const handleSave = () => {
     saveSettings();
     onClose();
+  };
+
+  const handleImportData = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImportStatus('Importing...');
+    const result = await importAllAppData(file);
+
+    if (result.error) {
+      setImportStatus(`Error: ${result.error}`);
+    } else if (result.presets === 0 && result.projects === 0) {
+      setImportStatus('No new data to import (duplicates skipped)');
+    } else {
+      setImportStatus(`Imported ${result.presets} presets, ${result.projects} projects. Refresh to see changes.`);
+    }
+
+    // Reset input
+    if (importInputRef.current) {
+      importInputRef.current.value = '';
+    }
+
+    // Clear status after 5 seconds
+    setTimeout(() => setImportStatus(null), 5000);
   };
 
   // Find the selected model name for display
@@ -211,6 +238,47 @@ export default function SettingsModal({ isOpen, onClose, appSettings }: Settings
                 <strong>Note:</strong> Settings are saved to your browser's local storage.
                 They persist across sessions but are specific to this browser.
               </p>
+            </div>
+
+            {/* Data & Backup Section */}
+            <div>
+              <label className="block text-sm font-medium text-zinc-300 mb-2">
+                <Database className="w-4 h-4 inline mr-1" />
+                Data & Backup
+              </label>
+              <div className="space-y-3">
+                <div className="flex gap-2">
+                  <button
+                    onClick={exportAllAppData}
+                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-sm rounded-lg transition-colors"
+                  >
+                    <Download className="w-4 h-4" />
+                    Export All Data
+                  </button>
+                  <button
+                    onClick={() => importInputRef.current?.click()}
+                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-sm rounded-lg transition-colors"
+                  >
+                    <Upload className="w-4 h-4" />
+                    Import Backup
+                  </button>
+                  <input
+                    ref={importInputRef}
+                    type="file"
+                    accept=".json"
+                    onChange={handleImportData}
+                    className="hidden"
+                  />
+                </div>
+                <p className="text-xs text-zinc-500">
+                  Export includes presets and projects. API keys are not included for security.
+                </p>
+                {importStatus && (
+                  <p className={`text-xs ${importStatus.startsWith('Error') ? 'text-red-400' : 'text-green-400'}`}>
+                    {importStatus}
+                  </p>
+                )}
+              </div>
             </div>
           </div>
 

@@ -145,3 +145,92 @@ export const exportPresetsToJSON = (presets: PromptPreset[]) => {
   a.click();
   URL.revokeObjectURL(url);
 };
+
+/**
+ * Export all app data (presets + projects) as a single JSON backup file.
+ * Excludes settings/API keys for security.
+ */
+export const exportAllAppData = () => {
+  const presetsRaw = localStorage.getItem('fpv_presets');
+  const projectsRaw = localStorage.getItem('fpv_projects');
+
+  const bundle = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    presets: presetsRaw ? JSON.parse(presetsRaw) : [],
+    projects: projectsRaw ? JSON.parse(projectsRaw) : [],
+  };
+
+  const data = JSON.stringify(bundle, null, 2);
+  const blob = new Blob([data], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `fpv-ai-backup-${new Date().toISOString().split('T')[0]}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+/**
+ * Import all app data from a backup file.
+ * Returns counts of imported items.
+ */
+export const importAllAppData = async (file: File): Promise<{ presets: number; projects: number; error?: string }> => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+
+    reader.onload = (event) => {
+      try {
+        const content = event.target?.result as string;
+        const bundle = JSON.parse(content);
+
+        // Validate bundle structure
+        if (!bundle.presets && !bundle.projects) {
+          resolve({ presets: 0, projects: 0, error: 'Invalid backup file format' });
+          return;
+        }
+
+        let presetsImported = 0;
+        let projectsImported = 0;
+
+        // Import presets (merge with existing, avoid duplicates by ID)
+        if (bundle.presets && Array.isArray(bundle.presets)) {
+          const existingRaw = localStorage.getItem('fpv_presets');
+          const existing = existingRaw ? JSON.parse(existingRaw) : [];
+          const existingIds = new Set(existing.map((p: PromptPreset) => p.id));
+
+          const newPresets = bundle.presets.filter((p: PromptPreset) => !p.isDefault && !existingIds.has(p.id));
+          if (newPresets.length > 0) {
+            const merged = [...existing, ...newPresets];
+            localStorage.setItem('fpv_presets', JSON.stringify(merged));
+            presetsImported = newPresets.length;
+          }
+        }
+
+        // Import projects (merge with existing, avoid duplicates by ID)
+        if (bundle.projects && Array.isArray(bundle.projects)) {
+          const existingRaw = localStorage.getItem('fpv_projects');
+          const existing = existingRaw ? JSON.parse(existingRaw) : [];
+          const existingIds = new Set(existing.map((p: { id: string }) => p.id));
+
+          const newProjects = bundle.projects.filter((p: { id: string }) => !existingIds.has(p.id));
+          if (newProjects.length > 0) {
+            const merged = [...newProjects, ...existing];
+            localStorage.setItem('fpv_projects', JSON.stringify(merged));
+            projectsImported = newProjects.length;
+          }
+        }
+
+        resolve({ presets: presetsImported, projects: projectsImported });
+      } catch (e) {
+        resolve({ presets: 0, projects: 0, error: 'Failed to parse backup file' });
+      }
+    };
+
+    reader.onerror = () => {
+      resolve({ presets: 0, projects: 0, error: 'Failed to read file' });
+    };
+
+    reader.readAsText(file);
+  });
+};
