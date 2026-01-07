@@ -187,6 +187,8 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     setActiveVideoUrl(null);
     setActiveVideoName(null);
     setActiveClipIndex(null);
+    setCurrentStart(undefined);
+    setCurrentEnd(undefined);
     setStatus(AppStatus.IDLE);
   }, [videoQueue]);
 

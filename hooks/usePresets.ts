@@ -5,6 +5,45 @@ import { DEFAULT_PRESETS } from '../constants/defaultPresets';
 const STORAGE_KEY = 'fpv_presets';
 const AUTO_BACKUP_KEY = 'fpv_auto_backup';
 const LAST_BACKUP_KEY = 'fpv_last_backup';
+const IDB_DB_NAME = 'fpv_editor_db';
+const IDB_STORE_NAME = 'handles';
+const IDB_HANDLE_KEY = 'directoryHandle';
+
+// IndexedDB helpers for persisting FileSystemDirectoryHandle
+const openDB = (): Promise<IDBDatabase> => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(IDB_DB_NAME, 1);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore(IDB_STORE_NAME);
+    };
+  });
+};
+
+const storeDirectoryHandle = async (handle: FileSystemDirectoryHandle): Promise<void> => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE_NAME, 'readwrite');
+    tx.objectStore(IDB_STORE_NAME).put(handle, IDB_HANDLE_KEY);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+};
+
+const getStoredDirectoryHandle = async (): Promise<FileSystemDirectoryHandle | null> => {
+  try {
+    const db = await openDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction(IDB_STORE_NAME, 'readonly');
+      const request = tx.objectStore(IDB_STORE_NAME).get(IDB_HANDLE_KEY);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
+};
 
 /** Safe localStorage write that handles quota errors */
 const safeLocalStorageSet = (key: string, value: string): boolean => {
@@ -74,6 +113,30 @@ export function usePresets(): UsePresetsReturn {
   }, [presets]);
 
   const supportsFileSystemAccess = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
+
+  // Restore directory handle from IndexedDB on mount
+  useEffect(() => {
+    if (!supportsFileSystemAccess) return;
+
+    const restoreHandle = async () => {
+      const storedHandle = await getStoredDirectoryHandle();
+      if (!storedHandle) return;
+
+      try {
+        // Request permission to use the stored handle
+        // @ts-ignore - requestPermission may not be in types
+        const permission = await storedHandle.requestPermission({ mode: 'readwrite' });
+        if (permission === 'granted') {
+          setDirectoryHandle(storedHandle);
+        }
+      } catch (err) {
+        // User denied or handle is no longer valid
+        console.log('Could not restore directory handle:', err);
+      }
+    };
+
+    restoreHandle();
+  }, [supportsFileSystemAccess]);
 
   // Auto-backup function - downloads presets JSON
   const performBackup = useCallback(() => {
@@ -176,6 +239,8 @@ export function usePresets(): UsePresetsReturn {
       // @ts-ignore - showDirectoryPicker may not be in types
       const handle = await window.showDirectoryPicker();
       setDirectoryHandle(handle);
+      // Persist handle to IndexedDB for restoration on reload
+      await storeDirectoryHandle(handle);
       for (const p of presets) {
         await syncToDisk(p);
       }

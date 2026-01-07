@@ -1,4 +1,4 @@
-import { ClipSegment, PromptPreset, ExportMode } from "../types";
+import { ClipSegment, PromptPreset, ExportMode, SocialCaptions } from "../types";
 
 const parseTimeToSeconds = (timeStr: string): number => {
   const parts = timeStr.split(':').map(Number);
@@ -264,4 +264,73 @@ export const importAllAppData = async (file: File): Promise<{ presets: number; p
 
     reader.readAsText(file);
   });
+};
+
+// ===========================================
+// Caption Export Functions
+// ===========================================
+
+interface CaptionExportItem {
+  clipIndex: number;
+  clipDescription: string;
+  captions: SocialCaptions;
+}
+
+/**
+ * Export captions as a structured JSON file
+ */
+export const exportCaptionsJSON = (items: CaptionExportItem[], filename: string = 'fpv-captions.json'): void => {
+  const data = {
+    exportedAt: new Date().toISOString(),
+    clips: items.map(item => ({
+      index: item.clipIndex,
+      description: item.clipDescription,
+      instagram: item.captions.instagram,
+      tiktok: item.captions.tiktok,
+      youtube: item.captions.youtube,
+      twitter: item.captions.twitter,
+      hashtags: item.captions.hashtags,
+    })),
+  };
+
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+/**
+ * Export captions as CSV for spreadsheet use
+ */
+export const exportCaptionsCSV = (items: CaptionExportItem[], filename: string = 'fpv-captions.csv'): void => {
+  const escapeCSV = (str: string): string => {
+    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  };
+
+  const headers = ['Clip', 'Description', 'Instagram', 'TikTok', 'YouTube Title', 'YouTube Description', 'Twitter', 'Hashtags'];
+  const rows = items.map(item => [
+    String(item.clipIndex + 1),
+    escapeCSV(item.clipDescription),
+    escapeCSV(item.captions.instagram),
+    escapeCSV(item.captions.tiktok),
+    escapeCSV(item.captions.youtube.title),
+    escapeCSV(item.captions.youtube.description),
+    escapeCSV(item.captions.twitter),
+    escapeCSV(item.captions.hashtags.map(h => `#${h}`).join(' ')),
+  ]);
+
+  const csv = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 };

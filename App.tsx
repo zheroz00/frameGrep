@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   Upload, Zap, Video, Terminal, AlertTriangle, PlayCircle, Loader2,
   CloudUpload, Cpu, FileCode, Monitor, Sparkles, Wand2, AlertCircle,
-  X, CheckCircle2, XCircle, Film, Server, Cloud, Settings, FolderOpen
+  X, CheckCircle2, XCircle, Film, Server, Cloud, Settings, FolderOpen, Hash
 } from 'lucide-react';
 import { optimizeSystemInstruction } from './services/geminiService';
 import VideoPlayer from './components/VideoPlayer';
@@ -10,18 +10,26 @@ import ClipCard from './components/ClipCard';
 import PromptLab from './components/PromptLab';
 import SettingsModal from './components/settings/SettingsModal';
 import ProjectsSidebar from './components/ProjectsSidebar';
+import CaptionModal from './components/CaptionModal';
 import { usePresets } from './hooks/usePresets';
 import { useVideoAnalysis } from './hooks/useVideoAnalysis';
 import { useAppSettings } from './hooks/useAppSettings';
 import { useProjects } from './hooks/useProjects';
 import { generateEDLWithMode, generateFFmpegScriptWithMode, filterClipsForExport } from './utils/exportUtils';
-import { ExportMode, Project } from './types';
+import { ExportMode, Project, ClipSegment, CaptionMode } from './types';
 
 export default function App() {
   const [isPromptLabOpen, setIsPromptLabOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isProjectsOpen, setIsProjectsOpen] = useState(false);
   const [exportMode, setExportMode] = useState<ExportMode>('highlights_only');
+
+  // Caption Modal State
+  const [captionModal, setCaptionModal] = useState<{
+    isOpen: boolean;
+    clip?: ClipSegment;
+    mode: CaptionMode;
+  }>({ isOpen: false, mode: 'clip' });
 
   // Custom Modal State
   const [confirmAction, setConfirmAction] = useState<{
@@ -176,6 +184,17 @@ export default function App() {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         appSettings={appSettings}
+      />
+
+      {/* Caption Modal */}
+      <CaptionModal
+        isOpen={captionModal.isOpen}
+        onClose={() => setCaptionModal({ isOpen: false, mode: 'clip' })}
+        apiKey={settings.geminiApiKey}
+        clip={captionModal.clip}
+        clips={analysis.allClips}
+        initialMode={captionModal.mode}
+        videoFilename={sourceFiles[0]}
       />
 
       {/* Header */}
@@ -504,6 +523,13 @@ export default function App() {
                       >
                         <FileCode size={12} /> FFmpeg
                       </button>
+                      <button
+                        onClick={() => setCaptionModal({ isOpen: true, mode: 'video' })}
+                        className="px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-400 text-xs rounded flex items-center gap-2 transition-colors"
+                        title="Generate social media captions for all clips"
+                      >
+                        <Hash size={12} /> Captions
+                      </button>
                     </div>
                   </div>
                   {/* Export Mode Toggle - show when Smart Edit data is present */}
@@ -595,6 +621,7 @@ export default function App() {
                     clip={clip}
                     filename={clip.sourceFile || 'video.mp4'}
                     onPlay={() => analysis.handlePlayClip(clip, idx)}
+                    onCaption={() => setCaptionModal({ isOpen: true, clip, mode: 'clip' })}
                     isActive={analysis.activeClipIndex === idx}
                     showSource={hasMultipleSources}
                   />

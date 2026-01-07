@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Copy, Check, Film, Sun, Cloud, Sunset, Moon, Sparkles, Waves, ArrowRight, Trash2, Zap, Activity, Battery } from 'lucide-react';
+import { Play, Copy, Check, Film, Sun, Cloud, Sunset, Moon, Sparkles, Waves, ArrowRight, Trash2, Zap, Activity, Battery, MessageCircle } from 'lucide-react';
 import { ClipSegment, ClipMood, LightingCondition, SectionType, EnergyLevel, EditRecommendation } from '../types';
 
 // Mood badge styling
@@ -76,6 +76,7 @@ interface ClipCardProps {
   clip: ClipSegment;
   index: number;
   onPlay: () => void;
+  onCaption?: () => void;
   isActive: boolean;
   filename: string;
   showSource?: boolean;
@@ -86,7 +87,7 @@ const escapeShellFilename = (str: string): string => {
   return str.replace(/(["\$`\\])/g, '\\$1');
 };
 
-const ClipCard: React.FC<ClipCardProps> = ({ clip, index, onPlay, isActive, filename, showSource }) => {
+const ClipCard: React.FC<ClipCardProps> = ({ clip, index, onPlay, onCaption, isActive, filename, showSource }) => {
   const [copied, setCopied] = useState(false);
 
   const getScoreColor = (score: number) => {
@@ -204,6 +205,15 @@ const ClipCard: React.FC<ClipCardProps> = ({ clip, index, onPlay, isActive, file
         >
           <Play size={14} /> Preview
         </button>
+        {onCaption && (
+          <button
+            onClick={onCaption}
+            title="Generate Social Media Captions"
+            className="px-3 flex items-center justify-center gap-2 bg-zinc-950 border border-zinc-800 hover:border-amber-500/50 hover:bg-amber-500/10 text-zinc-400 hover:text-amber-400 text-xs py-2 rounded-lg transition-all"
+          >
+            <MessageCircle size={14} />
+          </button>
+        )}
         <button
           onClick={copyCommand}
           title="Copy FFmpeg Command"

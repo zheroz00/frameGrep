@@ -95,6 +95,30 @@ export interface AppSettings {
   customConfig: CustomProviderConfig;
 }
 
+// Social Media Captions (Issue #21)
+export type SocialPlatform = 'instagram' | 'tiktok' | 'youtube' | 'twitter';
+export type CaptionMode = 'clip' | 'video';
+
+export interface YouTubeCaption {
+  title: string;
+  description: string;
+}
+
+export interface SocialCaptions {
+  instagram: string;
+  tiktok: string;
+  youtube: YouTubeCaption;
+  twitter: string;
+  hashtags: string[];
+}
+
+export interface CaptionRequest {
+  mode: CaptionMode;
+  clip?: ClipSegment;           // For single clip mode
+  clips?: ClipSegment[];        // For full video summary mode
+  videoFilename?: string;       // Optional context
+}
+
 // Saved analysis project (persisted to localStorage)
 export interface Project {
   id: string;                    // Unique ID (timestamp-based)
