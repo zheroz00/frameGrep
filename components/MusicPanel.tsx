@@ -169,13 +169,24 @@ const MusicPanel: React.FC<MusicPanelProps> = ({ music, clips, jamendoClientId }
           <form onSubmit={handleCustomSearch} className="space-y-2">
             <label className="text-xs text-zinc-500 font-medium">Custom Search</label>
             <div className="flex gap-2">
-              <input
-                type="text"
-                value={customTags}
-                onChange={(e) => setCustomTags(e.target.value)}
-                placeholder="e.g., electronic, epic, cinematic"
-                className="flex-1 px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500"
-              />
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={customTags}
+                  onChange={(e) => setCustomTags(e.target.value)}
+                  placeholder="e.g., electronic, epic, cinematic"
+                  className="w-full px-3 py-2 pr-8 bg-zinc-950 border border-zinc-800 rounded-lg text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500"
+                />
+                {customTags && (
+                  <button
+                    type="button"
+                    onClick={() => setCustomTags('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
               <button
                 type="submit"
                 disabled={!customTags.trim() || !jamendoClientId || isLoading}
@@ -329,7 +340,7 @@ const TrackCard: React.FC<TrackCardProps> = ({ track, isPlaying, onPlay, onStop 
           {track.tags.slice(0, 5).map((tag, i) => (
             <span
               key={i}
-              className="px-1.5 py-0.5 bg-zinc-900 text-zinc-500 text-[9px] rounded"
+              className="px-1.5 py-0.5 bg-zinc-700/60 text-zinc-300 text-[9px] rounded border border-zinc-600/50"
             >
               {tag}
             </span>

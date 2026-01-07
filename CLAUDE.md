@@ -2,6 +2,20 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Working With This User
+
+**Scope Creep Check**: The user tends to get excited when features are implemented quickly and may start requesting additional features mid-task. Before implementing new feature requests that seem to expand scope significantly, STOP and ask:
+
+1. "This sounds like a bigger feature - should we finish [current task] first and create a GitHub issue for this?"
+2. "Is this something you want right now, or should we track it for later?"
+
+Signs to watch for:
+- Requests for features unrelated to the current task
+- "What if we also..." or "Could we add..." during implementation
+- Escalating complexity (e.g., simple export → full video editor)
+
+The app's core purpose is **clip identification + music suggestion + export to external tools**. Features that turn it into a full video editor should be questioned and discussed before implementation.
+
 ## Project Overview
 
 FPV.AI Editor is a React application that uses Google's Gemini AI to analyze FPV drone footage and automatically identify highlight moments. Users upload video files, configure analysis presets, and export clips as EDL files (DaVinci Resolve/Premiere) or FFmpeg scripts.
