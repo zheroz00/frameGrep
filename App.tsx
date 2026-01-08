@@ -17,8 +17,8 @@ import { useVideoAnalysis } from './hooks/useVideoAnalysis';
 import { useAppSettings } from './hooks/useAppSettings';
 import { useProjects } from './hooks/useProjects';
 import { useMusic } from './hooks/useMusic';
-import { generateEDLWithMode, generateFFmpegScriptWithMode, generateFCPXMLWithMode, filterClipsForExport } from './utils/exportUtils';
-import { ExportMode, Project, ClipSegment, CaptionMode } from './types';
+import { generateEDLWithMode, generateFFmpegScriptWithMode, generateFCPXMLWithMode, filterClipsForExport, FCPXMLOptions } from './utils/exportUtils';
+import { ExportMode, Project, ClipSegment, CaptionMode, VideoMetadata } from './types';
 
 export default function App() {
   const [isPromptLabOpen, setIsPromptLabOpen] = useState(false);
@@ -51,6 +51,16 @@ export default function App() {
   // Destructure commonly used settings
   const { settings, updateProvider } = appSettings;
   const provider = settings.provider;
+
+  // Compute export helpers
+  const currentProject = projects.currentProjectId
+    ? projects.projects.find(p => p.id === projects.currentProjectId)
+    : null;
+  const exportProjectName = currentProject?.name || 'FPV_Supercut';
+  const exportFilename = `${exportProjectName.replace(/[^a-z0-9]/gi, '_')}.fcpxml`;
+
+  // Get video metadata from first video in queue (for FCPXML export)
+  const firstVideoMetadata = analysis.videoQueue.find(v => v.metadata)?.metadata;
 
   const handleOptimizePrompt = async () => {
     const apiKey = settings.geminiApiKey;
@@ -553,9 +563,18 @@ export default function App() {
                         <FileCode size={12} /> FFmpeg
                       </button>
                       <button
-                        onClick={() => downloadFile(generateFCPXMLWithMode('FPV_Supercut', analysis.allClips, exportMode, music.selectedTrack?.filename), 'FPV_Supercut.fcpxml')}
+                        onClick={() => {
+                          const fcpxmlOptions: FCPXMLOptions = {
+                            audioFilename: music.selectedTrack?.filename,
+                            metadata: firstVideoMetadata,
+                          };
+                          downloadFile(
+                            generateFCPXMLWithMode(exportProjectName, analysis.allClips, exportMode, fcpxmlOptions),
+                            exportFilename
+                          );
+                        }}
                         className="px-3 py-1.5 bg-orange-500/10 border border-orange-500/30 hover:bg-orange-500/20 text-orange-400 text-xs rounded flex items-center gap-2 transition-colors"
-                        title={music.selectedTrack ? `Export with music: ${music.selectedTrack.track.name}` : 'Export as FCPXML for DaVinci Resolve'}
+                        title={`Export as FCPXML for DaVinci Resolve${firstVideoMetadata ? ` (${firstVideoMetadata.fps}fps ${firstVideoMetadata.width}x${firstVideoMetadata.height})` : ''}${music.selectedTrack ? ` with music: ${music.selectedTrack.track.name}` : ''}`}
                       >
                         <Film size={12} /> DaVinci {music.selectedTrack && <Music size={10} className="text-emerald-400" />}
                       </button>

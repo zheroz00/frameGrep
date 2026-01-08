@@ -1,4 +1,4 @@
-import { ClipSegment, PromptPreset, ExportMode, SocialCaptions } from "../types";
+import { ClipSegment, PromptPreset, ExportMode, SocialCaptions, VideoMetadata } from "../types";
 
 const parseTimeToSeconds = (timeStr: string): number => {
   const parts = timeStr.split(':').map(Number);
@@ -107,18 +107,32 @@ const escapeXMLAttr = (str: string): string => {
 };
 
 /**
+ * FCPXML export options
+ */
+export interface FCPXMLOptions {
+  audioFilename?: string;    // Optional music track filename
+  metadata?: VideoMetadata;  // Video metadata for fps/resolution (auto-detected)
+}
+
+/**
  * Generates FCPXML 1.9 for DaVinci Resolve / Final Cut Pro import.
  * Creates a timeline with all clips in sequence, including markers with descriptions.
  * Uses filenames only for media references (user relinks in NLE).
  * Optionally includes a music track that spans the entire timeline.
+ * Uses auto-detected video metadata for fps/resolution when available.
  */
 export const generateFCPXML = (
   projectName: string,
   clips: ClipSegment[],
-  audioFilename?: string
+  options: FCPXMLOptions = {}
 ): string => {
-  const fps = 24;
-  const frameDuration = `100/${fps * 100}s`; // "100/2400s" for 24fps
+  const { audioFilename, metadata } = options;
+
+  // Use detected metadata or sensible defaults
+  const fps = metadata?.fps || 30;
+  const width = metadata?.width || 1920;
+  const height = metadata?.height || 1080;
+  const frameDuration = `100/${fps * 100}s`; // e.g., "100/3000s" for 30fps
 
   // Collect unique source files and create asset IDs
   const sourceFiles = new Set<string>();
@@ -137,8 +151,9 @@ export const generateFCPXML = (
   // Reserve ID for audio asset if present
   const audioAssetId = audioFilename ? `r${assetId}` : null;
 
-  // Build resources section
-  let resources = `    <format id="r1" name="FFVideoFormat1080p${fps}" frameDuration="${frameDuration}" width="1920" height="1080"/>\n`;
+  // Build resources section - use detected resolution
+  const formatName = height >= 2160 ? `FFVideoFormat4K${fps}` : `FFVideoFormat${height}p${fps}`;
+  let resources = `    <format id="r1" name="${formatName}" frameDuration="${frameDuration}" width="${width}" height="${height}"/>\n`;
 
   sourceFiles.forEach(file => {
     const id = assetMap.get(file)!;
@@ -220,15 +235,16 @@ ${spine}          </spine>${audioLane}
 /**
  * Generates FCPXML with export mode filtering
  * Optionally includes a music track that spans the entire timeline.
+ * Uses auto-detected video metadata for fps/resolution when available.
  */
 export const generateFCPXMLWithMode = (
   projectName: string,
   clips: ClipSegment[],
   mode: ExportMode,
-  audioFilename?: string
+  options: FCPXMLOptions = {}
 ): string => {
   const filteredClips = filterClipsForExport(clips, mode);
-  return generateFCPXML(projectName, filteredClips, audioFilename);
+  return generateFCPXML(projectName, filteredClips, options);
 };
 
 /**

@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { uploadVideo, analyzeVideo, UploadPhase } from '../services/geminiService';
 import { analyzeVideoLocal, LocalVLMConfig } from '../services/localVLMService';
-import { AppStatus, ClipSegment, VideoQueueItem, QueueItemStatus, AnalysisProvider } from '../types';
+import { extractVideoMetadata } from '../services/mediaInfoService';
+import { AppStatus, ClipSegment, VideoQueueItem, QueueItemStatus, AnalysisProvider, VideoMetadata } from '../types';
 
 export type AnalysisPhase = UploadPhase | 'analyzing' | 'extracting';
 
@@ -135,7 +136,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     };
   }, []);
 
-  const handleFilesUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFilesUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
@@ -159,6 +160,18 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
 
     // Reset input
     e.target.value = '';
+
+    // Extract metadata for each video in background
+    for (const item of newItems) {
+      try {
+        const metadata = await extractVideoMetadata(item.file);
+        setVideoQueue(prev => prev.map(qItem =>
+          qItem.id === item.id ? { ...qItem, metadata } : qItem
+        ));
+      } catch (err) {
+        console.warn(`Failed to extract metadata for ${item.file.name}:`, err);
+      }
+    }
   }, [activeVideoUrl]);
 
   const removeFromQueue = useCallback((id: string) => {
