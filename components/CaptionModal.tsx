@@ -295,7 +295,14 @@ export default function CaptionModal({
                   copied={copied === 'tiktok'}
                 />
 
-                {/* Row 2: YouTube & Twitter */}
+                {/* Row 2: Twitter & YouTube */}
+                <PlatformCard
+                  platform="twitter"
+                  config={PLATFORMS.twitter}
+                  text={captions.twitter}
+                  onCopy={() => copyToClipboard(captions.twitter, 'twitter')}
+                  copied={copied === 'twitter'}
+                />
                 <div
                   className={`relative overflow-hidden rounded-lg border ${PLATFORMS.youtube.borderColor} ${PLATFORMS.youtube.bgColor}`}
                 >
@@ -357,13 +364,6 @@ export default function CaptionModal({
                     </div>
                   </div>
                 </div>
-                <PlatformCard
-                  platform="twitter"
-                  config={PLATFORMS.twitter}
-                  text={captions.twitter}
-                  onCopy={() => copyToClipboard(captions.twitter, 'twitter')}
-                  copied={copied === 'twitter'}
-                />
               </div>
 
               {/* Hashtags */}
