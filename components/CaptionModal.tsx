@@ -22,41 +22,45 @@ const TikTokIcon = () => (
   </svg>
 );
 
-// Platform configuration
+// Platform configuration with brand-inspired styling
 const PLATFORMS = {
   instagram: {
     name: 'Instagram',
     icon: Instagram,
     color: 'text-pink-400',
-    bgColor: 'bg-pink-500/10',
-    borderColor: 'border-pink-500/30',
+    bgColor: 'bg-gradient-to-r from-purple-500/10 via-pink-500/10 to-orange-500/10',
+    borderColor: 'border-pink-500/40',
+    accentGradient: 'bg-gradient-to-r from-purple-500 via-pink-500 to-orange-500',
     limit: 2200,
     optimal: 150,
   },
   tiktok: {
     name: 'TikTok',
     icon: TikTokIcon,
-    color: 'text-cyan-400',
-    bgColor: 'bg-cyan-500/10',
-    borderColor: 'border-cyan-500/30',
+    color: 'text-white',
+    bgColor: 'bg-zinc-950',
+    borderColor: 'border-zinc-700',
+    accentGradient: 'bg-gradient-to-r from-cyan-400 to-pink-500',
     limit: 2200,
     optimal: 150,
   },
   youtube: {
     name: 'YouTube',
     icon: Youtube,
-    color: 'text-red-400',
-    bgColor: 'bg-red-500/10',
+    color: 'text-red-500',
+    bgColor: 'bg-red-500/5',
     borderColor: 'border-red-500/30',
+    accentGradient: 'bg-red-600',
     titleLimit: 100,
     descLimit: 5000,
   },
   twitter: {
     name: 'Twitter/X',
     icon: Twitter,
-    color: 'text-sky-400',
-    bgColor: 'bg-sky-500/10',
-    borderColor: 'border-sky-500/30',
+    color: 'text-zinc-100',
+    bgColor: 'bg-zinc-950',
+    borderColor: 'border-zinc-700',
+    accentGradient: 'bg-zinc-100',
     limit: 280,
   },
 } as const;
@@ -295,59 +299,63 @@ export default function CaptionModal({
 
                 {/* YouTube */}
                 <div
-                  className={`p-3 rounded-lg border ${PLATFORMS.youtube.borderColor} ${PLATFORMS.youtube.bgColor}`}
+                  className={`relative overflow-hidden rounded-lg border ${PLATFORMS.youtube.borderColor} ${PLATFORMS.youtube.bgColor}`}
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <Youtube className={`w-4 h-4 ${PLATFORMS.youtube.color}`} />
-                      <span className={`text-sm font-medium ${PLATFORMS.youtube.color}`}>
-                        YouTube
-                      </span>
-                    </div>
-                    <button
-                      onClick={copyYouTube}
-                      className="flex items-center gap-1 px-2 py-1 text-xs bg-zinc-800 hover:bg-zinc-700 rounded transition-colors"
-                    >
-                      {copied === 'youtube' ? (
-                        <Check size={12} className="text-green-400" />
-                      ) : (
-                        <Copy size={12} />
-                      )}
-                      Copy
-                    </button>
-                  </div>
-                  <div className="space-y-2">
-                    <div>
-                      <div className="flex items-center justify-between text-xs text-zinc-500 mb-1">
-                        <span>Title</span>
-                        <span
-                          className={getCharCountColor(
-                            captions.youtube.title.length,
-                            PLATFORMS.youtube.titleLimit
-                          )}
-                        >
-                          {captions.youtube.title.length}/{PLATFORMS.youtube.titleLimit}
+                  {/* YouTube red accent bar */}
+                  <div className={`h-1 ${PLATFORMS.youtube.accentGradient}`} />
+                  <div className="p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <Youtube className={`w-4 h-4 ${PLATFORMS.youtube.color}`} />
+                        <span className={`text-sm font-medium ${PLATFORMS.youtube.color}`}>
+                          YouTube
                         </span>
                       </div>
-                      <p className="text-sm text-zinc-200 bg-zinc-950/50 p-2 rounded">
-                        {captions.youtube.title}
-                      </p>
+                      <button
+                        onClick={copyYouTube}
+                        className="flex items-center gap-1 px-2 py-1 text-xs bg-zinc-800/80 hover:bg-zinc-700 rounded transition-colors"
+                      >
+                        {copied === 'youtube' ? (
+                          <Check size={12} className="text-green-400" />
+                        ) : (
+                          <Copy size={12} />
+                        )}
+                        Copy
+                      </button>
                     </div>
-                    <div>
-                      <div className="flex items-center justify-between text-xs text-zinc-500 mb-1">
-                        <span>Description</span>
-                        <span
-                          className={getCharCountColor(
-                            captions.youtube.description.length,
-                            PLATFORMS.youtube.descLimit
-                          )}
-                        >
-                          {captions.youtube.description.length}/{PLATFORMS.youtube.descLimit}
-                        </span>
+                    <div className="space-y-2">
+                      <div>
+                        <div className="flex items-center justify-between text-xs text-zinc-500 mb-1">
+                          <span>Title</span>
+                          <span
+                            className={getCharCountColor(
+                              captions.youtube.title.length,
+                              PLATFORMS.youtube.titleLimit
+                            )}
+                          >
+                            {captions.youtube.title.length}/{PLATFORMS.youtube.titleLimit}
+                          </span>
+                        </div>
+                        <p className="text-sm text-zinc-200 bg-zinc-950/50 p-2 rounded">
+                          {captions.youtube.title}
+                        </p>
                       </div>
-                      <p className="text-sm text-zinc-200 bg-zinc-950/50 p-2 rounded whitespace-pre-wrap">
-                        {captions.youtube.description}
-                      </p>
+                      <div>
+                        <div className="flex items-center justify-between text-xs text-zinc-500 mb-1">
+                          <span>Description</span>
+                          <span
+                            className={getCharCountColor(
+                              captions.youtube.description.length,
+                              PLATFORMS.youtube.descLimit
+                            )}
+                          >
+                            {captions.youtube.description.length}/{PLATFORMS.youtube.descLimit}
+                          </span>
+                        </div>
+                        <p className="text-sm text-zinc-200 bg-zinc-950/50 p-2 rounded whitespace-pre-wrap">
+                          {captions.youtube.description}
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -454,6 +462,7 @@ interface PlatformCardProps {
     color: string;
     bgColor: string;
     borderColor: string;
+    accentGradient?: string;
     limit?: number;
     optimal?: number;
   };
@@ -467,34 +476,38 @@ function PlatformCard({ config, text, onCopy, copied }: PlatformCardProps) {
   const limit = config.limit || 2200;
 
   return (
-    <div className={`p-3 rounded-lg border ${config.borderColor} ${config.bgColor}`}>
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <Icon className={`w-4 h-4 ${config.color}`} />
-          <span className={`text-sm font-medium ${config.color}`}>{config.name}</span>
+    <div className={`relative overflow-hidden rounded-lg border ${config.borderColor} ${config.bgColor}`}>
+      {/* Accent bar at top */}
+      <div className={`h-1 ${config.accentGradient || 'bg-zinc-700'}`} />
+      <div className="p-3">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <Icon className={`w-4 h-4 ${config.color}`} />
+            <span className={`text-sm font-medium ${config.color}`}>{config.name}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span
+              className={`text-xs ${
+                text.length > limit
+                  ? 'text-red-400'
+                  : text.length > limit * 0.9
+                    ? 'text-yellow-400'
+                    : 'text-zinc-500'
+              }`}
+            >
+              {text.length}/{limit}
+            </span>
+            <button
+              onClick={onCopy}
+              className="flex items-center gap-1 px-2 py-1 text-xs bg-zinc-800/80 hover:bg-zinc-700 rounded transition-colors"
+            >
+              {copied ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
+              Copy
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span
-            className={`text-xs ${
-              text.length > limit
-                ? 'text-red-400'
-                : text.length > limit * 0.9
-                  ? 'text-yellow-400'
-                  : 'text-zinc-500'
-            }`}
-          >
-            {text.length}/{limit}
-          </span>
-          <button
-            onClick={onCopy}
-            className="flex items-center gap-1 px-2 py-1 text-xs bg-zinc-800 hover:bg-zinc-700 rounded transition-colors"
-          >
-            {copied ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
-            Copy
-          </button>
-        </div>
+        <p className="text-sm text-zinc-200 whitespace-pre-wrap">{text}</p>
       </div>
-      <p className="text-sm text-zinc-200 whitespace-pre-wrap">{text}</p>
     </div>
   );
 }
