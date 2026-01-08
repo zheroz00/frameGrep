@@ -156,6 +156,13 @@ export interface MusicSearchContext {
   error?: string;
 }
 
+// Selected music track info (saved with project)
+export interface SelectedMusicTrack {
+  track: JamendoTrack;           // Full track metadata
+  filename: string;              // Downloaded filename (e.g., "track_12345.mp3")
+  downloadedAt: string;          // ISO timestamp
+}
+
 // Saved analysis project (persisted to localStorage)
 export interface Project {
   id: string;                    // Unique ID (timestamp-based)
@@ -167,4 +174,5 @@ export interface Project {
   presetId: string;              // Preset used for analysis
   presetInstruction: string;     // Instruction snapshot at analysis time
   provider: AnalysisProvider;    // Provider used ('gemini' | 'custom')
+  selectedMusic?: SelectedMusicTrack; // Selected music track for this project
 }

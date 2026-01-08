@@ -205,6 +205,8 @@ export default function App() {
         music={music}
         clips={analysis.allClips}
         jamendoClientId={settings.jamendoClientId}
+        directoryHandle={presets.directoryHandle}
+        onRequestFolderLink={() => setIsSettingsOpen(true)}
       />
 
       {/* Header */}
@@ -551,11 +553,11 @@ export default function App() {
                         <FileCode size={12} /> FFmpeg
                       </button>
                       <button
-                        onClick={() => downloadFile(generateFCPXMLWithMode('FPV_Supercut', analysis.allClips, exportMode), 'FPV_Supercut.fcpxml')}
+                        onClick={() => downloadFile(generateFCPXMLWithMode('FPV_Supercut', analysis.allClips, exportMode, music.selectedTrack?.filename), 'FPV_Supercut.fcpxml')}
                         className="px-3 py-1.5 bg-orange-500/10 border border-orange-500/30 hover:bg-orange-500/20 text-orange-400 text-xs rounded flex items-center gap-2 transition-colors"
-                        title="Export as FCPXML for DaVinci Resolve"
+                        title={music.selectedTrack ? `Export with music: ${music.selectedTrack.track.name}` : 'Export as FCPXML for DaVinci Resolve'}
                       >
-                        <Film size={12} /> DaVinci
+                        <Film size={12} /> DaVinci {music.selectedTrack && <Music size={10} className="text-emerald-400" />}
                       </button>
                       <button
                         onClick={() => setCaptionModal({ isOpen: true, mode: 'video' })}

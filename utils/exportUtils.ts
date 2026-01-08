@@ -110,8 +110,13 @@ const escapeXMLAttr = (str: string): string => {
  * Generates FCPXML 1.9 for DaVinci Resolve / Final Cut Pro import.
  * Creates a timeline with all clips in sequence, including markers with descriptions.
  * Uses filenames only for media references (user relinks in NLE).
+ * Optionally includes a music track that spans the entire timeline.
  */
-export const generateFCPXML = (projectName: string, clips: ClipSegment[]): string => {
+export const generateFCPXML = (
+  projectName: string,
+  clips: ClipSegment[],
+  audioFilename?: string
+): string => {
   const fps = 24;
   const frameDuration = `100/${fps * 100}s`; // "100/2400s" for 24fps
 
@@ -129,6 +134,9 @@ export const generateFCPXML = (projectName: string, clips: ClipSegment[]): strin
     assetId++;
   });
 
+  // Reserve ID for audio asset if present
+  const audioAssetId = audioFilename ? `r${assetId}` : null;
+
   // Build resources section
   let resources = `    <format id="r1" name="FFVideoFormat1080p${fps}" frameDuration="${frameDuration}" width="1920" height="1080"/>\n`;
 
@@ -139,6 +147,14 @@ export const generateFCPXML = (projectName: string, clips: ClipSegment[]): strin
     resources += `      <media-rep kind="original-media" src="file:///${escapedName}"/>\n`;
     resources += `    </asset>\n`;
   });
+
+  // Add audio asset if present
+  if (audioFilename && audioAssetId) {
+    const escapedAudioName = escapeXMLAttr(audioFilename);
+    resources += `    <asset id="${audioAssetId}" name="${escapedAudioName}" src="file:///${escapedAudioName}" hasVideo="0" hasAudio="1">\n`;
+    resources += `      <media-rep kind="original-media" src="file:///${escapedAudioName}"/>\n`;
+    resources += `    </asset>\n`;
+  }
 
   // Build spine with clips
   let spine = '';
@@ -171,6 +187,15 @@ export const generateFCPXML = (projectName: string, clips: ClipSegment[]): strin
   const totalDuration = secondsToFCPXMLTime(timelineOffset, fps);
   const escapedProjectName = escapeXMLAttr(projectName);
 
+  // Build audio lane if music is selected
+  let audioLane = '';
+  if (audioFilename && audioAssetId) {
+    const escapedAudioName = escapeXMLAttr(audioFilename);
+    // Audio clip spans the entire timeline duration, starting from 0
+    audioLane = `
+          <audio-clip ref="${audioAssetId}" lane="-1" offset="0s" name="${escapedAudioName}" start="0s" duration="${totalDuration}"/>`;
+  }
+
   // Assemble full FCPXML
   const fcpxml = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE fcpxml>
@@ -182,7 +207,7 @@ ${resources}  </resources>
       <project name="${escapedProjectName}">
         <sequence format="r1" duration="${totalDuration}" tcStart="0s" tcFormat="NDF">
           <spine>
-${spine}          </spine>
+${spine}          </spine>${audioLane}
         </sequence>
       </project>
     </event>
@@ -194,14 +219,16 @@ ${spine}          </spine>
 
 /**
  * Generates FCPXML with export mode filtering
+ * Optionally includes a music track that spans the entire timeline.
  */
 export const generateFCPXMLWithMode = (
   projectName: string,
   clips: ClipSegment[],
-  mode: ExportMode
+  mode: ExportMode,
+  audioFilename?: string
 ): string => {
   const filteredClips = filterClipsForExport(clips, mode);
-  return generateFCPXML(projectName, filteredClips);
+  return generateFCPXML(projectName, filteredClips, audioFilename);
 };
 
 /**

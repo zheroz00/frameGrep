@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Music, X, Search, Play, Pause, ExternalLink, Loader2,
-  Sparkles, Clock, Tag, Zap, AlertCircle, RefreshCw
+  Sparkles, Clock, Zap, AlertCircle, RefreshCw, Download, Check, FolderOpen
 } from 'lucide-react';
 import { UseMusicReturn } from '../hooks/useMusic';
 import { ClipSegment, JamendoTrack } from '../types';
@@ -16,9 +16,17 @@ interface MusicPanelProps {
   music: UseMusicReturn;
   clips: ClipSegment[];
   jamendoClientId: string | undefined;
+  directoryHandle: FileSystemDirectoryHandle | null;
+  onRequestFolderLink?: () => void;
 }
 
-const MusicPanel: React.FC<MusicPanelProps> = ({ music, clips, jamendoClientId }) => {
+const MusicPanel: React.FC<MusicPanelProps> = ({
+  music,
+  clips,
+  jamendoClientId,
+  directoryHandle,
+  onRequestFolderLink
+}) => {
   const [customTags, setCustomTags] = useState('');
 
   const {
@@ -35,6 +43,10 @@ const MusicPanel: React.FC<MusicPanelProps> = ({ music, clips, jamendoClientId }
     currentlyPlaying,
     playTrack,
     stopPlayback,
+    selectedTrack,
+    isDownloading,
+    downloadProgress,
+    selectTrack,
   } = music;
 
   // Auto-search when panel opens with clips
@@ -216,6 +228,70 @@ const MusicPanel: React.FC<MusicPanelProps> = ({ music, clips, jamendoClientId }
             </div>
           )}
 
+          {/* Selected Track Display */}
+          {selectedTrack && (
+            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4">
+              <div className="flex items-center gap-2 text-emerald-400 mb-3">
+                <Check size={14} />
+                <span className="text-xs font-bold uppercase tracking-wider">Selected Track</span>
+              </div>
+              <div className="flex gap-3">
+                <div className="w-12 h-12 rounded overflow-hidden bg-zinc-700 shrink-0">
+                  {selectedTrack.track.image ? (
+                    <img src={selectedTrack.track.image} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <Music size={16} className="text-zinc-500" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="text-sm font-medium text-emerald-300 truncate">{selectedTrack.track.name}</h4>
+                  <p className="text-xs text-zinc-400 truncate">{selectedTrack.track.artist_name}</p>
+                  <p className="text-[10px] text-zinc-500 mt-1">Saved as: {selectedTrack.filename}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Download Progress */}
+          {isDownloading && (
+            <div className="bg-zinc-800/50 border border-zinc-700 rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Loader2 size={14} className="animate-spin text-emerald-500" />
+                <span className="text-xs text-zinc-400">Downloading track...</span>
+              </div>
+              <div className="w-full bg-zinc-700 rounded-full h-2">
+                <div
+                  className="bg-emerald-500 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${downloadProgress}%` }}
+                />
+              </div>
+              <p className="text-[10px] text-zinc-500 mt-1 text-right">{downloadProgress}%</p>
+            </div>
+          )}
+
+          {/* No Folder Warning */}
+          {!directoryHandle && tracks.length > 0 && !isLoading && (
+            <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+              <div className="flex items-center gap-2 text-amber-400 mb-2">
+                <FolderOpen size={14} />
+                <span className="text-xs font-medium">Link a folder to download music</span>
+              </div>
+              <p className="text-[10px] text-zinc-400 mb-2">
+                To select and download tracks, link a folder in Settings first.
+              </p>
+              {onRequestFolderLink && (
+                <button
+                  onClick={onRequestFolderLink}
+                  className="text-xs text-amber-400 hover:text-amber-300 underline"
+                >
+                  Open Settings
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Track Results */}
           {tracks.length > 0 && !isLoading && (
             <div className="space-y-2">
@@ -231,8 +307,12 @@ const MusicPanel: React.FC<MusicPanelProps> = ({ music, clips, jamendoClientId }
                     key={track.id}
                     track={track}
                     isPlaying={currentlyPlaying === track.id}
+                    isSelected={selectedTrack?.track.id === track.id}
+                    isDownloading={isDownloading}
+                    canSelect={!!directoryHandle}
                     onPlay={() => playTrack(track.id, track.audio)}
                     onStop={stopPlayback}
+                    onSelect={() => selectTrack(track, directoryHandle)}
                   />
                 ))}
               </div>
@@ -264,20 +344,35 @@ const MusicPanel: React.FC<MusicPanelProps> = ({ music, clips, jamendoClientId }
 interface TrackCardProps {
   track: JamendoTrack;
   isPlaying: boolean;
+  isSelected: boolean;
+  isDownloading: boolean;
+  canSelect: boolean;
   onPlay: () => void;
   onStop: () => void;
+  onSelect: () => void;
 }
 
-const TrackCard: React.FC<TrackCardProps> = ({ track, isPlaying, onPlay, onStop }) => {
+const TrackCard: React.FC<TrackCardProps> = ({
+  track,
+  isPlaying,
+  isSelected,
+  isDownloading,
+  canSelect,
+  onPlay,
+  onStop,
+  onSelect
+}) => {
   return (
     <div className={`p-3 rounded-lg border transition-all ${
-      isPlaying
-        ? 'bg-emerald-500/10 border-emerald-500/50'
-        : 'bg-zinc-800/50 border-zinc-700 hover:border-zinc-600'
+      isSelected
+        ? 'bg-emerald-500/15 border-emerald-500/50 ring-1 ring-emerald-500/30'
+        : isPlaying
+          ? 'bg-emerald-500/10 border-emerald-500/50'
+          : 'bg-zinc-800/50 border-zinc-700 hover:border-zinc-600'
     }`}>
       <div className="flex gap-3">
         {/* Album Art */}
-        <div className="w-14 h-14 rounded overflow-hidden bg-zinc-700 shrink-0">
+        <div className="w-14 h-14 rounded overflow-hidden bg-zinc-700 shrink-0 relative">
           {track.image ? (
             <img
               src={track.image}
@@ -289,11 +384,18 @@ const TrackCard: React.FC<TrackCardProps> = ({ track, isPlaying, onPlay, onStop 
               <Music size={20} className="text-zinc-500" />
             </div>
           )}
+          {isSelected && (
+            <div className="absolute inset-0 bg-emerald-500/40 flex items-center justify-center">
+              <Check size={24} className="text-white" />
+            </div>
+          )}
         </div>
 
         {/* Track Info */}
         <div className="flex-1 min-w-0">
-          <h4 className="text-sm font-medium text-zinc-200 truncate">{track.name}</h4>
+          <h4 className={`text-sm font-medium truncate ${isSelected ? 'text-emerald-300' : 'text-zinc-200'}`}>
+            {track.name}
+          </h4>
           <p className="text-xs text-zinc-500 truncate">{track.artist_name}</p>
           <div className="flex items-center gap-2 mt-1">
             <span className="flex items-center gap-1 text-[10px] text-zinc-500">
@@ -322,6 +424,21 @@ const TrackCard: React.FC<TrackCardProps> = ({ track, isPlaying, onPlay, onStop 
           >
             {isPlaying ? <Pause size={14} /> : <Play size={14} />}
           </button>
+          {canSelect && !isSelected && (
+            <button
+              onClick={onSelect}
+              disabled={isDownloading}
+              className="p-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+              title="Select & Download"
+            >
+              <Download size={14} />
+            </button>
+          )}
+          {isSelected && (
+            <div className="p-2 bg-emerald-500 text-white rounded-lg" title="Selected">
+              <Check size={14} />
+            </div>
+          )}
           <a
             href={track.shareurl}
             target="_blank"
