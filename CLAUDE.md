@@ -34,7 +34,7 @@ npm run preview      # Preview production build
 Set API keys in `.env.local`:
 
 ```bash
-GEMINI_API_KEY=AIza...                    # Google Gemini API key
+VITE_GEMINI_API_KEY=AIza...               # Google Gemini API key
 
 # OpenRouter (optional, for custom provider)
 VITE_OPENROUTER_API_KEY=sk-or-v1-...      # OpenRouter API key

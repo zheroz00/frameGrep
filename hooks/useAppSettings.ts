@@ -7,7 +7,7 @@ const SETTINGS_KEY = 'fpv_app_settings';
 // Default settings - use env vars if available
 const getDefaultSettings = (): AppSettings => ({
   provider: 'gemini',
-  geminiApiKey: '',
+  geminiApiKey: import.meta.env.VITE_GEMINI_API_KEY || '',
   customConfig: {
     endpoint: import.meta.env.VITE_OPENROUTER_ENDPOINT || 'https://openrouter.ai/api/v1',
     model: import.meta.env.VITE_OPENROUTER_MODEL || 'qwen/qwen3-vl-8b-instruct',
