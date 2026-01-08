@@ -371,10 +371,10 @@ export default function CaptionModal({
               </div>
 
               {/* Hashtags */}
-              <div className="p-3 bg-zinc-950 rounded-lg border border-zinc-800">
+              <div className="p-3 bg-amber-500/5 rounded-lg border border-amber-500/20">
                 <div className="flex items-center gap-2 mb-2">
-                  <Hash className="w-4 h-4 text-zinc-400" />
-                  <span className="text-sm font-medium text-zinc-300">Hashtags</span>
+                  <Hash className="w-4 h-4 text-amber-400" />
+                  <span className="text-sm font-medium text-amber-300">Hashtags</span>
                   <span className="text-xs text-zinc-500">
                     (auto-added when copying, except Twitter)
                   </span>
