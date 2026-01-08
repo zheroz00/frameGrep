@@ -277,9 +277,9 @@ export default function CaptionModal({
           {/* Captions */}
           {captions && !loading && (
             <>
-              {/* Platform cards */}
-              <div className="grid gap-3">
-                {/* Instagram */}
+              {/* Platform cards - 2x2 grid */}
+              <div className="grid grid-cols-2 gap-3">
+                {/* Row 1: Instagram & TikTok */}
                 <PlatformCard
                   platform="instagram"
                   config={PLATFORMS.instagram}
@@ -287,8 +287,6 @@ export default function CaptionModal({
                   onCopy={() => copyToClipboard(captions.instagram, 'instagram')}
                   copied={copied === 'instagram'}
                 />
-
-                {/* TikTok */}
                 <PlatformCard
                   platform="tiktok"
                   config={PLATFORMS.tiktok}
@@ -297,14 +295,14 @@ export default function CaptionModal({
                   copied={copied === 'tiktok'}
                 />
 
-                {/* YouTube */}
+                {/* Row 2: YouTube & Twitter */}
                 <div
                   className={`relative overflow-hidden rounded-lg border ${PLATFORMS.youtube.borderColor} ${PLATFORMS.youtube.bgColor}`}
                 >
                   {/* YouTube red accent bar */}
                   <div className={`h-1 ${PLATFORMS.youtube.accentGradient}`} />
-                  <div className="p-3">
-                    <div className="flex items-center justify-between mb-2">
+                  <div className="p-2.5">
+                    <div className="flex items-center justify-between mb-1.5">
                       <div className="flex items-center gap-2">
                         <Youtube className={`w-4 h-4 ${PLATFORMS.youtube.color}`} />
                         <span className={`text-sm font-medium ${PLATFORMS.youtube.color}`}>
@@ -323,9 +321,9 @@ export default function CaptionModal({
                         Copy
                       </button>
                     </div>
-                    <div className="space-y-2">
+                    <div className="space-y-1.5">
                       <div>
-                        <div className="flex items-center justify-between text-xs text-zinc-500 mb-1">
+                        <div className="flex items-center justify-between text-[10px] text-zinc-500 mb-0.5">
                           <span>Title</span>
                           <span
                             className={getCharCountColor(
@@ -336,12 +334,12 @@ export default function CaptionModal({
                             {captions.youtube.title.length}/{PLATFORMS.youtube.titleLimit}
                           </span>
                         </div>
-                        <p className="text-sm text-zinc-200 bg-zinc-950/50 p-2 rounded">
+                        <p className="text-xs text-zinc-200 bg-zinc-950/50 p-1.5 rounded">
                           {captions.youtube.title}
                         </p>
                       </div>
                       <div>
-                        <div className="flex items-center justify-between text-xs text-zinc-500 mb-1">
+                        <div className="flex items-center justify-between text-[10px] text-zinc-500 mb-0.5">
                           <span>Description</span>
                           <span
                             className={getCharCountColor(
@@ -352,15 +350,13 @@ export default function CaptionModal({
                             {captions.youtube.description.length}/{PLATFORMS.youtube.descLimit}
                           </span>
                         </div>
-                        <p className="text-sm text-zinc-200 bg-zinc-950/50 p-2 rounded whitespace-pre-wrap">
+                        <p className="text-xs text-zinc-200 bg-zinc-950/50 p-1.5 rounded whitespace-pre-wrap line-clamp-3">
                           {captions.youtube.description}
                         </p>
                       </div>
                     </div>
                   </div>
                 </div>
-
-                {/* Twitter */}
                 <PlatformCard
                   platform="twitter"
                   config={PLATFORMS.twitter}
@@ -476,18 +472,18 @@ function PlatformCard({ config, text, onCopy, copied }: PlatformCardProps) {
   const limit = config.limit || 2200;
 
   return (
-    <div className={`relative overflow-hidden rounded-lg border ${config.borderColor} ${config.bgColor}`}>
+    <div className={`relative overflow-hidden rounded-lg border ${config.borderColor} ${config.bgColor} flex flex-col`}>
       {/* Accent bar at top */}
-      <div className={`h-1 ${config.accentGradient || 'bg-zinc-700'}`} />
-      <div className="p-3">
-        <div className="flex items-center justify-between mb-2">
+      <div className={`h-1 shrink-0 ${config.accentGradient || 'bg-zinc-700'}`} />
+      <div className="p-2.5 flex flex-col flex-1">
+        <div className="flex items-center justify-between mb-1.5">
           <div className="flex items-center gap-2">
             <Icon className={`w-4 h-4 ${config.color}`} />
             <span className={`text-sm font-medium ${config.color}`}>{config.name}</span>
           </div>
           <div className="flex items-center gap-2">
             <span
-              className={`text-xs ${
+              className={`text-[10px] ${
                 text.length > limit
                   ? 'text-red-400'
                   : text.length > limit * 0.9
@@ -506,7 +502,7 @@ function PlatformCard({ config, text, onCopy, copied }: PlatformCardProps) {
             </button>
           </div>
         </div>
-        <p className="text-sm text-zinc-200 whitespace-pre-wrap">{text}</p>
+        <p className="text-xs text-zinc-200 whitespace-pre-wrap flex-1">{text}</p>
       </div>
     </div>
   );
