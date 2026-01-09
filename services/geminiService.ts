@@ -23,6 +23,10 @@ const clipSchema: Schema = {
         type: Type.INTEGER,
         description: "Excitement score from 1-10",
       },
+      reasoning: {
+        type: Type.STRING,
+        description: "Chain-of-thought explanation for why this clip was selected (e.g., 'Smooth power loop with mountain reveal at apex')",
+      },
       mood: {
         type: Type.STRING,
         description: "Overall mood/energy of the clip",
@@ -59,7 +63,7 @@ const clipSchema: Schema = {
         description: "Notes about transition quality or suggestions (for transition sections)",
       },
     },
-    required: ["start_time", "end_time", "description", "excitement_score"],
+    required: ["start_time", "end_time", "description", "excitement_score", "reasoning"],
   },
 };
 
@@ -133,7 +137,7 @@ export const analyzeVideo = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3-flash-preview", // Upgraded from 2.5-flash for 4x faster video analysis
       contents: {
         parts: [
           {

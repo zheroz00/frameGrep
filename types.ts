@@ -43,6 +43,16 @@ export interface VideoFile {
   url: string;
 }
 
+// Video metadata extracted via MediaInfo.js
+export interface VideoMetadata {
+  filename: string;
+  fps: number;           // Frame rate (e.g., 24, 30, 60, 100, 120)
+  width: number;         // Video width in pixels
+  height: number;        // Video height in pixels
+  codec: string;         // Video codec (e.g., "HEVC", "H.264")
+  duration: number;      // Duration in seconds
+}
+
 export type QueueItemStatus = 'pending' | 'uploading' | 'processing' | 'analyzing' | 'complete' | 'error';
 
 export interface VideoQueueItem {
@@ -52,6 +62,7 @@ export interface VideoQueueItem {
   status: QueueItemStatus;
   clips: ClipSegment[];
   error?: string;
+  metadata?: VideoMetadata; // Extracted video metadata
 }
 
 export type PresetCategory = 'fpv' | 'generic' | 'custom';
@@ -156,6 +167,13 @@ export interface MusicSearchContext {
   error?: string;
 }
 
+// Selected music track info (saved with project)
+export interface SelectedMusicTrack {
+  track: JamendoTrack;           // Full track metadata
+  filename: string;              // Downloaded filename (e.g., "track_12345.mp3")
+  downloadedAt: string;          // ISO timestamp
+}
+
 // Saved analysis project (persisted to localStorage)
 export interface Project {
   id: string;                    // Unique ID (timestamp-based)
@@ -167,4 +185,5 @@ export interface Project {
   presetId: string;              // Preset used for analysis
   presetInstruction: string;     // Instruction snapshot at analysis time
   provider: AnalysisProvider;    // Provider used ('gemini' | 'custom')
+  selectedMusic?: SelectedMusicTrack; // Selected music track for this project
 }
