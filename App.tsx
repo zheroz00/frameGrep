@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   Upload, Zap, Video, Terminal, AlertTriangle, PlayCircle, Loader2,
   CloudUpload, Cpu, FileCode, Monitor, Sparkles, Wand2, AlertCircle,
-  X, CheckCircle2, XCircle, Film, Server, Cloud, Settings, FolderOpen, Hash, Music
+  X, CheckCircle2, XCircle, Film, Server, Cloud, Settings, FolderOpen, Hash, Music, Link2
 } from 'lucide-react';
 import { optimizeSystemInstruction } from './services/geminiService';
 import VideoPlayer from './components/VideoPlayer';
@@ -123,6 +123,7 @@ export default function App() {
       settings.geminiApiKey,
       presets.currentInstruction,
       presets.currentMaxDuration,
+      presets.activeCategory,
       provider === 'custom' ? settings.customConfig : undefined
     );
   };
@@ -267,13 +268,13 @@ export default function App() {
               onClick={() => setIsProjectsOpen(!isProjectsOpen)}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                 isProjectsOpen
-                  ? 'bg-purple-500 text-white'
+                  ? 'bg-amber-500 text-white'
                   : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
               }`}
             >
               <FolderOpen size={16} />
               {projects.projects.length > 0 && (
-                <span className={`text-xs ${isProjectsOpen ? 'text-purple-200' : 'text-zinc-500'}`}>
+                <span className={`text-xs ${isProjectsOpen ? 'text-amber-200' : 'text-zinc-500'}`}>
                   {projects.projects.length}
                 </span>
               )}
@@ -395,6 +396,49 @@ export default function App() {
               )}
             </div>
 
+            {/* Relink Banner - shown when project loaded but videos missing */}
+            {analysis.needsRelink && (
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 shadow-lg">
+                <div className="flex items-start gap-3">
+                  <Link2 size={20} className="text-amber-400 mt-0.5 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <h4 className="text-sm font-semibold text-amber-300 mb-1">
+                      Videos need to be relinked
+                    </h4>
+                    <p className="text-xs text-zinc-400 mb-3">
+                      Project loaded successfully. Select the original video files to enable preview and playback.
+                    </p>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {analysis.missingVideos.map((filename, i) => (
+                        <span key={i} className="px-2 py-1 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-300 truncate max-w-[200px]">
+                          {filename}
+                        </span>
+                      ))}
+                    </div>
+                    <label className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-zinc-950 text-sm font-semibold rounded-lg cursor-pointer transition-colors">
+                      <Link2 size={16} />
+                      Relink Videos
+                      <input
+                        type="file"
+                        className="hidden"
+                        accept="video/*"
+                        multiple
+                        onChange={async (e) => {
+                          if (e.target.files) {
+                            const count = await analysis.relinkVideos(e.target.files);
+                            if (count > 0) {
+                              console.log(`Relinked ${count} video(s)`);
+                            }
+                          }
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Upload & Analyze Controls */}
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 shadow-lg">
               <div className="flex items-center gap-4">
@@ -454,12 +498,16 @@ export default function App() {
                           {item.status === 'uploading' && <CloudUpload size={12} className="text-cyan-400 animate-bounce" />}
                           {item.status === 'processing' && <Cpu size={12} className="text-amber-400 animate-pulse" />}
                           {item.status === 'analyzing' && <Sparkles size={12} className="text-purple-400 animate-pulse" />}
-                          {item.status === 'complete' && <CheckCircle2 size={12} className="text-green-500" />}
+                          {item.status === 'complete' && item.url && <CheckCircle2 size={12} className="text-green-500" />}
+                          {item.status === 'complete' && !item.url && <Link2 size={12} className="text-amber-400" />}
                           {item.status === 'error' && <XCircle size={12} className="text-red-500" />}
                         </div>
-                        <span className="flex-1 truncate text-zinc-400">{item.file.name}</span>
-                        {item.status === 'complete' && (
+                        <span className={`flex-1 truncate ${item.url ? 'text-zinc-400' : 'text-amber-400/70'}`}>{item.file.name}</span>
+                        {item.status === 'complete' && item.url && (
                           <span className="text-green-500/70">{item.clips.length} clips</span>
+                        )}
+                        {item.status === 'complete' && !item.url && (
+                          <span className="text-amber-400/70 text-[10px]">needs relink</span>
                         )}
                         {item.status === 'error' && (
                           <span className="text-red-400 truncate max-w-[100px]" title={item.error}>

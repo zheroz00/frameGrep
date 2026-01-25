@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { uploadVideo, analyzeVideo, UploadPhase } from '../services/geminiService';
 import { analyzeVideoLocal, LocalVLMConfig } from '../services/localVLMService';
 import { extractVideoMetadata } from '../services/mediaInfoService';
-import { AppStatus, ClipSegment, VideoQueueItem, QueueItemStatus, AnalysisProvider, VideoMetadata } from '../types';
+import { AppStatus, ClipSegment, VideoQueueItem, QueueItemStatus, AnalysisProvider, VideoMetadata, PresetCategory } from '../types';
 
 export type AnalysisPhase = UploadPhase | 'analyzing' | 'extracting';
 
@@ -51,15 +51,26 @@ const formatErrorMessage = (error: string, provider: AnalysisProvider): string =
   return error;
 };
 
-/** Builds temporal constraint suffix for Gemini instruction */
-const buildTemporalConstraint = (maxDuration: number): string => {
-  const minDuration = Math.max(3, Math.floor(maxDuration / 2));
-  return `\n\nCRITICAL CLIP DURATION RULES:
+/** Builds temporal constraint suffix for Gemini instruction based on content category */
+const buildTemporalConstraint = (maxDuration: number, category: PresetCategory = 'generic'): string => {
+  if (category === 'fpv') {
+    // FPV-specific: emphasize maneuvers, flow, drone terminology
+    const minDuration = Math.max(3, Math.floor(maxDuration / 2));
+    return `\n\nCRITICAL CLIP DURATION RULES:
 1. TARGET DURATION: Aim for ${minDuration}-${maxDuration} seconds per clip. Shorter clips lose context.
 2. COMPLETE MANEUVERS: Each clip MUST capture the FULL maneuver from setup to completion. Include the approach, the trick, AND the exit.
 3. CONNECTED MOVES: If maneuvers flow together (e.g., proximity pass into a power loop, or dive into a roll), capture them as ONE clip, not separate clips.
 4. NEVER cut a clip mid-maneuver. Wait for the drone to stabilize or transition before ending.
 5. When in doubt, make the clip LONGER to preserve context, up to ${maxDuration} seconds.`;
+  }
+
+  // Generic/custom: flexible durations, neutral language
+  return `\n\nCLIP DURATION GUIDELINES:
+1. MAXIMUM: ${maxDuration} seconds per clip. Shorter clips are fine when the moment is complete.
+2. COMPLETE MOMENTS: Each clip should capture the full action or interaction from start to finish.
+3. NATURAL BOUNDARIES: End clips at natural pause points, scene changes, or when the moment concludes.
+4. FLEXIBILITY: A 3-second clip showing a quick action is valid. A 20-second clip showing a complex sequence is also valid. Match duration to content.
+5. CONNECTED SEQUENCES: If actions flow together naturally, capture them as one clip rather than fragmenting.`;
 };
 
 export interface UseVideoAnalysisReturn {
@@ -86,6 +97,10 @@ export interface UseVideoAnalysisReturn {
   currentEnd: number | undefined;
   activeClipIndex: number | null;
 
+  // Relink support (for loaded projects)
+  needsRelink: boolean;
+  missingVideos: string[];
+
   // Actions
   handleFilesUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   removeFromQueue: (id: string) => void;
@@ -95,11 +110,13 @@ export interface UseVideoAnalysisReturn {
     apiKey: string,
     instruction: string,
     maxDuration: number,
+    category: PresetCategory,
     localConfig?: LocalVLMConfig
   ) => Promise<void>;
   handlePlayClip: (clip: ClipSegment, index: number) => void;
   setError: (error: string | null) => void;
   loadClipsFromProject: (clips: ClipSegment[], videoFilenames: string[]) => void;
+  relinkVideos: (files: FileList | File[]) => Promise<number>;
 }
 
 export function useVideoAnalysis(): UseVideoAnalysisReturn {
@@ -126,6 +143,12 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
 
   // Combine all clips from queue
   const allClips = videoQueue.flatMap(item => item.clips);
+
+  // Check if any videos need relinking (loaded from project but no actual file)
+  const missingVideos = videoQueue
+    .filter(item => !item.url && item.file.size === 0)
+    .map(item => item.file.name);
+  const needsRelink = missingVideos.length > 0;
 
   // Cleanup blob URLs on unmount
   useEffect(() => {
@@ -216,6 +239,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     apiKey: string,
     instruction: string,
     maxDuration: number,
+    category: PresetCategory,
     localConfig?: LocalVLMConfig
   ) => {
     const pendingItems = videoQueue.filter(item => item.status === 'pending');
@@ -247,7 +271,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
       setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
     }, 1000);
 
-    const finalInstruction = instruction + buildTemporalConstraint(maxDuration);
+    const finalInstruction = instruction + buildTemporalConstraint(maxDuration, category);
 
     try {
       for (let i = 0; i < pendingItems.length; i++) {
@@ -368,6 +392,53 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     setError(null);
   }, [videoQueue]);
 
+  const relinkVideos = useCallback(async (files: FileList | File[]) => {
+    const fileArray = Array.from(files);
+    let linkedCount = 0;
+    let firstLinkedUrl: string | null = null;
+    let firstLinkedName: string | null = null;
+
+    // Try to match each uploaded file to a placeholder queue item by filename
+    for (const file of fileArray) {
+      const matchingItem = videoQueue.find(
+        item => item.file.name === file.name && item.file.size === 0
+      );
+
+      if (matchingItem) {
+        const url = URL.createObjectURL(file);
+
+        // Extract metadata
+        let metadata: VideoMetadata | undefined;
+        try {
+          metadata = await extractVideoMetadata(file);
+        } catch (err) {
+          console.warn(`Failed to extract metadata for ${file.name}:`, err);
+        }
+
+        // Update the queue item with the real file
+        setVideoQueue(prev => prev.map(item =>
+          item.id === matchingItem.id
+            ? { ...item, file, url, metadata }
+            : item
+        ));
+
+        if (!firstLinkedUrl) {
+          firstLinkedUrl = url;
+          firstLinkedName = file.name;
+        }
+        linkedCount++;
+      }
+    }
+
+    // Set the first linked video as active for preview
+    if (firstLinkedUrl && !activeVideoUrl) {
+      setActiveVideoUrl(firstLinkedUrl);
+      setActiveVideoName(firstLinkedName);
+    }
+
+    return linkedCount;
+  }, [videoQueue, activeVideoUrl]);
+
   return {
     videoQueue,
     activeVideoUrl,
@@ -384,6 +455,9 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     currentStart,
     currentEnd,
     activeClipIndex,
+    // Relink support
+    needsRelink,
+    missingVideos,
     handleFilesUpload,
     removeFromQueue,
     clearQueue,
@@ -391,5 +465,6 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     handlePlayClip,
     setError,
     loadClipsFromProject,
+    relinkVideos,
   };
 }
