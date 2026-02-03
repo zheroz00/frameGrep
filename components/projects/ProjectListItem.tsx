@@ -51,7 +51,7 @@ const ProjectListItem: React.FC<ProjectListItemProps> = ({
     <div
       className={`p-3 rounded-lg border transition-colors ${
         isActive
-          ? 'bg-purple-500/10 border-purple-500/50'
+          ? 'bg-amber-500/10 border-amber-500/50'
           : 'bg-zinc-800/50 border-zinc-700/50 hover:border-zinc-600'
       }`}
     >
@@ -66,7 +66,7 @@ const ProjectListItem: React.FC<ProjectListItemProps> = ({
               onKeyDown={handleKeyDown}
               onBlur={handleSaveRename}
               autoFocus
-              className="flex-1 bg-zinc-900 border border-zinc-600 rounded px-2 py-0.5 text-sm text-zinc-200 focus:outline-none focus:border-purple-500"
+              className="flex-1 bg-zinc-900 border border-zinc-600 rounded px-2 py-0.5 text-sm text-zinc-200 focus:outline-none focus:border-amber-500"
             />
             <button
               onClick={handleSaveRename}
@@ -86,7 +86,7 @@ const ProjectListItem: React.FC<ProjectListItemProps> = ({
           </div>
         ) : (
           <div className="flex items-center gap-2 flex-1 min-w-0">
-            <FolderOpen size={14} className={isActive ? 'text-purple-400' : 'text-zinc-500'} />
+            <FolderOpen size={14} className={isActive ? 'text-amber-400' : 'text-zinc-500'} />
             <span className="text-sm font-medium text-zinc-200 truncate">{project.name}</span>
             <button
               onClick={() => setIsEditing(true)}
@@ -97,7 +97,7 @@ const ProjectListItem: React.FC<ProjectListItemProps> = ({
           </div>
         )}
         {isActive && (
-          <span className="px-1.5 py-0.5 bg-purple-500/20 text-purple-400 text-[10px] font-medium rounded shrink-0">
+          <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-400 text-[10px] font-medium rounded shrink-0">
             ACTIVE
           </span>
         )}
@@ -122,7 +122,7 @@ const ProjectListItem: React.FC<ProjectListItemProps> = ({
       <div className="flex items-center gap-2">
         <button
           onClick={onLoad}
-          className="flex-1 px-2 py-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 text-xs font-medium rounded transition-colors"
+          className="flex-1 px-2 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-xs font-medium rounded transition-colors"
         >
           Load
         </button>

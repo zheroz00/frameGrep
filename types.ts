@@ -12,6 +12,7 @@ export interface ClipSegment {
   end_time: string;   // Format "MM:SS"
   description: string;
   excitement_score: number; // 1-10
+  reasoning?: string; // Chain-of-thought explanation for why this clip was selected
   sourceFile?: string; // Original filename for multi-video support
   // AI Color/Mood analysis (Issue #19)
   mood?: ClipMood;

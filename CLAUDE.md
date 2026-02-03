@@ -2,17 +2,21 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Working With This User
+## User info
+My name is Marc (Captain Awesome.) ;) Here are a few important notes about me. Please keep these in mind when I'm starting to veer off path.
+- I'm a former Systems Engineer
+- I'm 49, single male, no dependancies.
+- Hobbies includes, woodworking, CNC router and laser, freestyle dancing, FPV drones, coding, hyper-ebikes.
+- I have weapons grade ADHD with a major side of imposter syndrome with is completely unwarranted.
+- Ask me about my website if we're doing anything where more info about me would be useful.
+- I tend to go `Rabbit Holing` where I go down a rabbit hole and don't emerge for hours. This can happen without me even realizing it.
+- Smaller tasks are easily to accomplish simply because of the satifaction of knocking something, ANYTHING off the list.
+- Question me about my choices if they are off-topic, unrelated to the project, bizarre, etc. e.g. I may ask for a feature and you will say "Sure!" and create it. But what you don't tell me is that you created a magical bridge to make it work. Those are the kind of things I want to know beforehand. 
+- Before we start adding features, ask me about the end-goal, or why I want to do that. I want to at least explain my reasoning so you can let me know what you think.
+- I have countless projects at 95% and for whatever reason I never complete them. I need to start understanding there is a reason people release v1, then v2. I always feel things need to be perfect before I release anything.
+- I am painfully self-aware of what I'm doing and that makes me nuts.
+- Always feel free to ask me about anything as we go.
 
-**Scope Creep Check**: The user tends to get excited when features are implemented quickly and may start requesting additional features mid-task. Before implementing new feature requests that seem to expand scope significantly, STOP and ask:
-
-1. "This sounds like a bigger feature - should we finish [current task] first and create a GitHub issue for this?"
-2. "Is this something you want right now, or should we track it for later?"
-
-Signs to watch for:
-- Requests for features unrelated to the current task
-- "What if we also..." or "Could we add..." during implementation
-- Escalating complexity (e.g., simple export → full video editor)
 
 The app's core purpose is **clip identification + music suggestion + export to external tools**. Features that turn it into a full video editor should be questioned and discussed before implementation.
 
@@ -155,3 +159,43 @@ If not set, users can enter API keys in the Settings UI. Frame extraction uses a
 - Hooks: camelCase with `use` prefix (`useVideoAnalysis.ts`)
 - Utils/services: camelCase (`exportUtils.ts`)
 - Constants: SCREAMING_SNAKE_CASE for values, camelCase for files
+
+
+---
+
+
+---
+
+## Corkboard Integration
+
+The corkboard is for **action items only** - things that require Marc's attention or intervention. Don't clutter it with status updates or informational notes.
+
+**Automated alerts (handled by hooks):**
+- AskUserQuestion tool triggers → auto-posts when waiting for input
+- Critical command failures → auto-posts on fatal errors, permission denied, etc.
+
+**When to manually post:**
+- Task complete and needs testing/review
+- Blocked and need Marc to provide info, credentials, or make a decision
+- Found something important Marc should know about (security issue, breaking change, etc.)
+- Build/deploy ready for verification
+
+**When NOT to post:**
+- Progress updates ("finished step 3 of 5")
+- Commits made (informational, not actionable)
+- Simple completions that don't need review
+- Anything Marc doesn't need to act on
+
+```bash
+# Post + alert (brings board forward)
+corkboard add task "READY FOR TESTING" "Login flow complete - test at localhost:3000" 1 && corkboard alert
+corkboard add task "NEED INFO" "Which S3 bucket for prod assets?" 1 && corkboard alert
+corkboard add alert "SECURITY" "Found exposed API key in .env.example" 1 && corkboard alert
+
+# Just list or manage (no alert needed)
+corkboard list
+corkboard complete <id>
+```
+
+**Types:** task, note, link, event, alert, email
+**Priority:** 1=high, 2=medium, 3=low

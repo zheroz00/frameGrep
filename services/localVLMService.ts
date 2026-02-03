@@ -4,12 +4,16 @@ export interface LocalVLMConfig {
   endpoint: string;
   model: string;
   apiKey?: string;
+  maxFrames?: number; // Override max frames for local models with limited context
 }
 
 export type FrameExtractionProgress = (current: number, total: number) => void;
 
-// Max frames to send to VLM (most models cap at ~50-100 images)
-const MAX_FRAMES = 60;
+// Max frames to send to VLM
+// Cloud APIs (OpenRouter): 60 frames works well with large context windows
+// Local VLMs (vLLM/Ollama): 15-20 frames recommended for 8K context models
+const DEFAULT_MAX_FRAMES = 60;
+const LOCAL_MODEL_MAX_FRAMES = 15; // Safe default for 8K context local models
 const MIN_FPS = 0.1; // Minimum 1 frame per 10 seconds
 const MAX_FPS = 1.0; // Maximum 1 frame per second
 
@@ -18,18 +22,40 @@ const ENV_FPS_OVERRIDE = import.meta.env.VITE_FRAME_EXTRACTION_FPS
   ? parseFloat(import.meta.env.VITE_FRAME_EXTRACTION_FPS)
   : null;
 
+// Optional max frames override from environment
+const ENV_MAX_FRAMES = import.meta.env.VITE_MAX_FRAMES
+  ? parseInt(import.meta.env.VITE_MAX_FRAMES)
+  : null;
+
+/**
+ * Check if endpoint is a local server (not OpenRouter)
+ */
+const isLocalEndpoint = (endpoint: string): boolean => {
+  return !endpoint.includes('openrouter.ai');
+};
+
 /**
  * Calculate adaptive FPS based on video duration to stay under frame limit.
  * If VITE_FRAME_EXTRACTION_FPS is set, uses that fixed value instead.
  */
-export const calculateAdaptiveFps = (durationSeconds: number): number => {
+export const calculateAdaptiveFps = (durationSeconds: number, maxFrames: number): number => {
   // Use fixed FPS if configured via environment
   if (ENV_FPS_OVERRIDE && !isNaN(ENV_FPS_OVERRIDE) && ENV_FPS_OVERRIDE > 0) {
     return ENV_FPS_OVERRIDE;
   }
 
-  const idealFps = MAX_FRAMES / durationSeconds;
+  const idealFps = maxFrames / durationSeconds;
   return Math.max(MIN_FPS, Math.min(MAX_FPS, idealFps));
+};
+
+/**
+ * Get appropriate max frames based on endpoint type
+ */
+export const getMaxFrames = (config: LocalVLMConfig): number => {
+  // Priority: config override > env var > endpoint-based default
+  if (config.maxFrames) return config.maxFrames;
+  if (ENV_MAX_FRAMES && !isNaN(ENV_MAX_FRAMES)) return ENV_MAX_FRAMES;
+  return isLocalEndpoint(config.endpoint) ? LOCAL_MODEL_MAX_FRAMES : DEFAULT_MAX_FRAMES;
 };
 
 /**
@@ -219,11 +245,15 @@ export const analyzeVideoLocal = async (
   onProgress?.('extracting', 'Reading video metadata...');
   const duration = await getVideoDuration(videoFile);
 
+  // Get max frames based on endpoint type (local models need fewer frames)
+  const maxFrames = getMaxFrames(config);
+
   // Calculate adaptive FPS to stay under frame limit
-  const fps = calculateAdaptiveFps(duration);
+  const fps = calculateAdaptiveFps(duration, maxFrames);
   const estimatedFrames = Math.ceil(duration * fps);
 
-  onProgress?.('extracting', `Extracting ~${estimatedFrames} frames (${fps.toFixed(2)} fps)...`);
+  const endpointType = isLocalEndpoint(config.endpoint) ? 'local' : 'cloud';
+  onProgress?.('extracting', `Extracting ~${estimatedFrames} frames (${fps.toFixed(2)} fps, ${endpointType} mode)...`);
 
   const frames = await extractFramesFromVideo(
     videoFile,

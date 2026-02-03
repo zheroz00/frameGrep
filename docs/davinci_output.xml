@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE fcpxml>
+<fcpxml version="1.9">
+  <resources>
+    <format id="r1" name="FFVideoFormat1080p100" frameDuration="100/10000s" width="1440" height="1080"/>
+    <asset id="r2" name="DJI_20250615182852_0006_D_3.mp4" src="file:///DJI_20250615182852_0006_D_3.mp4" hasVideo="1" hasAudio="1">
+      <media-rep kind="original-media" src="file:///DJI_20250615182852_0006_D_3.mp4"/>
+    </asset>
+    <asset id="r3" name="music_06___human_weakness___psychose_121455.mp3" src="file:///music_06___human_weakness___psychose_121455.mp3" hasVideo="0" hasAudio="1">
+      <media-rep kind="original-media" src="file:///music_06___human_weakness___psychose_121455.mp3"/>
+    </asset>
+  </resources>
+  <library>
+    <event name="Pro3">
+      <project name="Pro3">
+        <sequence format="r1" duration="4900/100s" tcStart="0s" tcFormat="NDF">
+          <spine>
+          <asset-clip ref="r2" offset="0/100s" name="Clip 1" start="200/100s" duration="2100/100s">
+            <marker start="0s" duration="1/100s" value="Proximity threading through branches into V-trunk MICRO GAP"/>
+          </asset-clip>
+          <asset-clip ref="r2" offset="2100/100s" name="Clip 2" start="2400/100s" duration="2800/100s">
+            <marker start="0s" duration="1/100s" value="Technical canopy climb and proximity dive"/>
+          </asset-clip>
+          </spine>
+          <audio-clip ref="r3" lane="-1" offset="0s" name="music_06___human_weakness___psychose_121455.mp3" start="0s" duration="4900/100s"/>
+        </sequence>
+      </project>
+    </event>
+  </library>
+</fcpxml>

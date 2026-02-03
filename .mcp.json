@@ -1,8 +1,12 @@
 {
   "mcpServers": {
-    "carl": {
-      "type": "http",
-      "url": "http://10.10.10.158:12008/metamcp/carl/mcp"
+    "chrome-devtools": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest",
+        "--headless"
+      ]
     }
   }
 }

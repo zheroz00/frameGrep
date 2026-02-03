@@ -120,12 +120,12 @@ const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
         }`}
       >
         {/* Header */}
-        <div className="p-4 bg-purple-500/5 border-b border-zinc-800 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-purple-400">
+        <div className="p-4 bg-amber-500/5 border-b border-zinc-800 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-amber-400">
             <FolderOpen size={18} />
             <h3 className="text-sm font-bold uppercase tracking-wider">Projects</h3>
             {projects.projects.length > 0 && (
-              <span className="px-1.5 py-0.5 bg-purple-500/20 text-purple-300 text-[10px] font-medium rounded">
+              <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-300 text-[10px] font-medium rounded">
                 {projects.projects.length}
               </span>
             )}
@@ -195,7 +195,7 @@ const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
                   <button
                     onClick={handleUpdateCurrent}
                     disabled={!canUpdate}
-                    className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 text-xs font-medium rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-xs font-medium rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Save size={14} />
                     Update "{currentProject.name}"
@@ -211,11 +211,11 @@ const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
                       onKeyDown={(e) => e.key === 'Enter' && handleSaveNew()}
                       placeholder="Project name (optional)"
                       autoFocus
-                      className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+                      className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
                     />
                     <button
                       onClick={handleSaveNew}
-                      className="px-3 py-1.5 bg-purple-500 hover:bg-purple-600 text-white text-xs font-medium rounded transition-colors"
+                      className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium rounded transition-colors"
                     >
                       Save
                     </button>
@@ -287,7 +287,7 @@ const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
                 <button
                   onClick={() => projects.setAutoBackupEnabled(!projects.autoBackupEnabled)}
                   className={`relative w-9 h-5 rounded-full transition-colors ${
-                    projects.autoBackupEnabled ? 'bg-purple-500' : 'bg-zinc-700'
+                    projects.autoBackupEnabled ? 'bg-amber-500' : 'bg-zinc-700'
                   }`}
                 >
                   <span

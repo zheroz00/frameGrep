@@ -115,11 +115,15 @@ export interface FCPXMLOptions {
 }
 
 /**
- * Generates FCPXML 1.9 for DaVinci Resolve / Final Cut Pro import.
+ * Generates FCPXML 1.8 for DaVinci Resolve / Final Cut Pro import.
  * Creates a timeline with all clips in sequence, including markers with descriptions.
  * Uses filenames only for media references (user relinks in NLE).
  * Optionally includes a music track that spans the entire timeline.
  * Uses auto-detected video metadata for fps/resolution when available.
+ *
+ * Key attributes for DaVinci compatibility:
+ * - Assets include start, duration, format for proper media recognition
+ * - Asset-clips include format, tcFormat for timeline placement
  */
 export const generateFCPXML = (
   projectName: string,
@@ -134,16 +138,31 @@ export const generateFCPXML = (
   const height = metadata?.height || 1080;
   const frameDuration = `100/${fps * 100}s`; // e.g., "100/3000s" for 30fps
 
-  // Collect unique source files and create asset IDs
-  const sourceFiles = new Set<string>();
+  // Collect unique source files and calculate their durations
+  // We need the max end_time for each source to determine asset duration
+  const sourceDurations = new Map<string, number>();
   clips.forEach(clip => {
-    sourceFiles.add(clip.sourceFile || 'video.mp4');
+    const sourceFile = clip.sourceFile || 'video.mp4';
+    const endSec = parseTimeToSeconds(clip.end_time);
+    const currentMax = sourceDurations.get(sourceFile) || 0;
+    sourceDurations.set(sourceFile, Math.max(currentMax, endSec));
   });
+
+  // If we have metadata with full video duration, use that for the primary source
+  // (more accurate than just max clip end time)
+  if (metadata?.duration && metadata.filename) {
+    const currentDuration = sourceDurations.get(metadata.filename) || 0;
+    sourceDurations.set(metadata.filename, Math.max(currentDuration, metadata.duration));
+  } else if (metadata?.duration && sourceDurations.size === 1) {
+    // Single source case - use metadata duration
+    const singleSource = Array.from(sourceDurations.keys())[0];
+    sourceDurations.set(singleSource, metadata.duration);
+  }
 
   // Create asset map: filename -> asset ID (r2, r3, r4, ...)
   const assetMap = new Map<string, string>();
   let assetId = 2; // r1 is reserved for format
-  sourceFiles.forEach(file => {
+  sourceDurations.forEach((_, file) => {
     assetMap.set(file, `r${assetId}`);
     assetId++;
   });
@@ -155,10 +174,12 @@ export const generateFCPXML = (
   const formatName = height >= 2160 ? `FFVideoFormat4K${fps}` : `FFVideoFormat${height}p${fps}`;
   let resources = `    <format id="r1" name="${formatName}" frameDuration="${frameDuration}" width="${width}" height="${height}"/>\n`;
 
-  sourceFiles.forEach(file => {
+  sourceDurations.forEach((duration, file) => {
     const id = assetMap.get(file)!;
     const escapedName = escapeXMLAttr(file);
-    resources += `    <asset id="${id}" name="${escapedName}" src="file:///${escapedName}" hasVideo="1" hasAudio="1">\n`;
+    // Add 10% buffer to duration to ensure clips don't exceed source bounds
+    const assetDuration = secondsToFCPXMLTime(duration * 1.1, fps);
+    resources += `    <asset id="${id}" name="${escapedName}" start="0s" duration="${assetDuration}" hasVideo="1" hasAudio="1" format="r1">\n`;
     resources += `      <media-rep kind="original-media" src="file:///${escapedName}"/>\n`;
     resources += `    </asset>\n`;
   });
@@ -166,12 +187,16 @@ export const generateFCPXML = (
   // Add audio asset if present
   if (audioFilename && audioAssetId) {
     const escapedAudioName = escapeXMLAttr(audioFilename);
-    resources += `    <asset id="${audioAssetId}" name="${escapedAudioName}" src="file:///${escapedAudioName}" hasVideo="0" hasAudio="1">\n`;
+    // Audio asset - estimate duration from timeline length (calculated later, use placeholder)
+    const audioDuration = secondsToFCPXMLTime(3600, fps); // 1 hour placeholder, will be trimmed
+    resources += `    <asset id="${audioAssetId}" name="${escapedAudioName}" start="0s" duration="${audioDuration}" hasVideo="0" hasAudio="1">\n`;
     resources += `      <media-rep kind="original-media" src="file:///${escapedAudioName}"/>\n`;
     resources += `    </asset>\n`;
   }
 
   // Build spine with clips
+  // If music track is selected, disable video audio (srcEnable="video") to use music instead
+  const srcEnableAttr = audioFilename ? ' srcEnable="video"' : '';
   let spine = '';
   let timelineOffset = 0;
 
@@ -191,8 +216,8 @@ export const generateFCPXML = (
     const durationTime = secondsToFCPXMLTime(duration, fps);
     const markerText = escapeXMLAttr(clip.description || `Clip ${index + 1}`);
 
-    spine += `          <asset-clip ref="${assetRef}" offset="${offsetTime}" name="${clipName}" start="${startTime}" duration="${durationTime}">\n`;
-    spine += `            <marker start="0s" duration="1/${fps}s" value="${markerText}"/>\n`;
+    spine += `          <asset-clip ref="${assetRef}" offset="${offsetTime}" name="${clipName}" start="${startTime}" duration="${durationTime}" format="r1" tcFormat="NDF"${srcEnableAttr}>\n`;
+    spine += `            <marker start="0s" duration="0s" value="${markerText}"/>\n`;
     spine += `          </asset-clip>\n`;
 
     timelineOffset += duration;
@@ -214,7 +239,7 @@ export const generateFCPXML = (
   // Assemble full FCPXML
   const fcpxml = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE fcpxml>
-<fcpxml version="1.9">
+<fcpxml version="1.8">
   <resources>
 ${resources}  </resources>
   <library>

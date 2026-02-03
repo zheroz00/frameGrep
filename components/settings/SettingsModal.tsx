@@ -58,6 +58,9 @@ export default function SettingsModal({ isOpen, onClose, appSettings }: Settings
     setTimeout(() => setImportStatus(null), 5000);
   };
 
+  // Check if using a local endpoint (not OpenRouter)
+  const isLocalEndpoint = !settings.customConfig.endpoint.includes('openrouter.ai');
+
   // Find the selected model name for display
   const selectedModel = openrouterModels.find(m => m.id === settings.customConfig.model);
   const modelDisplayName = selectedModel?.name || settings.customConfig.model || 'Select a model...';
@@ -172,6 +175,7 @@ export default function SettingsModal({ isOpen, onClose, appSettings }: Settings
                   />
                   <p className="text-xs text-zinc-500 mt-1">
                     OpenRouter: <code className="text-zinc-400">https://openrouter.ai/api/v1</code> |
+                    vLLM: <code className="text-zinc-400">http://localhost:8081/v1</code> |
                     Ollama: <code className="text-zinc-400">http://localhost:11434/v1</code>
                   </p>
                 </div>
@@ -215,19 +219,38 @@ export default function SettingsModal({ isOpen, onClose, appSettings }: Settings
                     </button>
                   </div>
 
-                  <button
-                    onClick={() => setIsModelSelectorOpen(true)}
-                    disabled={loadingModels}
-                    className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-200 hover:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-purple-500/50 text-left flex items-center justify-between disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <span className="truncate">{modelDisplayName}</span>
-                    <ChevronDown className="w-4 h-4 text-zinc-500" />
-                  </button>
-
-                  {openrouterModels.length > 0 && (
-                    <p className="text-xs text-zinc-500 mt-1">
-                      {openrouterModels.length} models available - Click to browse
-                    </p>
+                  {/* For local endpoints with no models found, show text input */}
+                  {isLocalEndpoint && openrouterModels.length === 0 ? (
+                    <>
+                      <input
+                        type="text"
+                        value={settings.customConfig.model}
+                        onChange={(e) => updateCustomConfig({ model: e.target.value })}
+                        placeholder="e.g., Qwen/Qwen2.5-VL-7B-Instruct-AWQ"
+                        className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-200 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500"
+                      />
+                      <p className="text-xs text-zinc-500 mt-1">
+                        Enter the model name from your local server. Click Refresh to auto-detect available models.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => setIsModelSelectorOpen(true)}
+                        disabled={loadingModels}
+                        className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-200 hover:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-purple-500/50 text-left flex items-center justify-between disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <span className="truncate">{modelDisplayName}</span>
+                        <ChevronDown className="w-4 h-4 text-zinc-500" />
+                      </button>
+                      <p className="text-xs text-zinc-500 mt-1">
+                        {openrouterModels.length > 0
+                          ? `${openrouterModels.length} models available - Click to browse`
+                          : isLocalEndpoint
+                            ? 'No models found. Is the server running?'
+                            : 'Loading models...'}
+                      </p>
+                    </>
                   )}
                 </div>
               </>

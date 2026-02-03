@@ -4,6 +4,48 @@ import { fetchOpenRouterModels, filterVisionModels } from '../services/openroute
 
 const SETTINGS_KEY = 'fpv_app_settings';
 
+/**
+ * Check if endpoint is OpenRouter
+ */
+const isOpenRouterEndpoint = (endpoint: string): boolean => {
+  return endpoint.includes('openrouter.ai');
+};
+
+/**
+ * Fetch models from a local OpenAI-compatible endpoint (vLLM, Ollama, etc.)
+ */
+const fetchLocalModels = async (endpoint: string, apiKey?: string): Promise<OpenRouterModel[]> => {
+  try {
+    const baseUrl = endpoint.replace(/\/+$/, '');
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    };
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+
+    const response = await fetch(`${baseUrl}/models`, { headers });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch models: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const models = data.data || data.models || [];
+
+    // Convert to OpenRouterModel format for compatibility
+    return models.map((m: { id: string; owned_by?: string }) => ({
+      id: m.id,
+      name: m.id.split('/').pop() || m.id,
+      context_length: 8192, // Default, local endpoints don't always provide this
+      pricing: { prompt: '0', completion: '0' },
+      description: `Local model from ${m.owned_by || 'local server'}`
+    }));
+  } catch (error) {
+    console.error('Failed to fetch local models:', error);
+    return [];
+  }
+};
+
 // Default settings - use env vars if available
 const getDefaultSettings = (): AppSettings => ({
   provider: 'gemini',
@@ -69,24 +111,32 @@ export function useAppSettings(): UseAppSettingsReturn {
     }
   }, []);
 
-  // Fetch OpenRouter models when settings load
+  // Fetch models when settings load or endpoint changes
   useEffect(() => {
     if (!isLoading) {
       refreshModels();
     }
-  }, [isLoading]);
+  }, [isLoading, settings.customConfig.endpoint]);
 
   const refreshModels = useCallback(async () => {
     setLoadingModels(true);
     try {
-      const models = await fetchOpenRouterModels();
+      const endpoint = settings.customConfig.endpoint;
+      let models: OpenRouterModel[];
+
+      if (isOpenRouterEndpoint(endpoint)) {
+        models = await fetchOpenRouterModels();
+      } else {
+        models = await fetchLocalModels(endpoint, settings.customConfig.apiKey);
+      }
+
       setOpenrouterModels(models);
     } catch (error) {
       console.error('Failed to fetch models:', error);
     } finally {
       setLoadingModels(false);
     }
-  }, []);
+  }, [settings.customConfig.endpoint, settings.customConfig.apiKey]);
 
   const visionModels = filterVisionModels(openrouterModels);
 
