@@ -147,7 +147,7 @@ export const analyzeVideo = async (
             },
           },
           {
-            text: "Analyze this video and provide a JSON list of the best FPV moments according to your instructions.",
+            text: "Analyze this video and provide a JSON list of the best moments according to your instructions.",
           },
         ],
       },

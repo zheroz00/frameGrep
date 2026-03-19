@@ -559,6 +559,115 @@ Example reasoning: "FEATURE REVEAL of export dialog. DYNAMIC ZOOM recommended as
   // SMART EDIT ROADMAP
   // ============================================
   {
+    id: 'software-demo-edit-guide',
+    name: 'Software Demo - Edit Guide',
+    isDefault: true,
+    category: 'generic',
+    maxDuration: 45,
+    instruction: `Role: Video editing coach for someone brand new to DaVinci Resolve, analyzing a software demo screen recording.
+
+Objective: Create a complete editing roadmap. For each important moment, explain WHAT to do and HOW to do it in DaVinci Resolve. Be specific with timestamps and step-by-step instructions.
+
+CRITICAL: AUDIO IS CONTEXT, NOT CONTENT
+The narrator is describing their actions as a guide ("I'm clicking the Marty McFly card to open details"). USE this narration to UNDERSTAND what's being demonstrated, but DO NOT score clips based on:
+- Audio clarity or quality
+- "Good explanation" or verbal delivery
+- Soundbites or quotable moments
+
+The narration will be REPLACED with professional voiceover in post. Score clips ONLY on VISUAL merit:
+- What UI interaction is shown?
+- What feature is being demonstrated?
+- What result appears on screen?
+- Is the visual flow clear and purposeful?
+
+A silent click on an important button = same value as a narrated click. The voice is just a guide for you to follow along.
+
+MOMENT TYPES (use these in your descriptions):
+
+**KEEP AS-IS**
+- HERO MOMENT: The "wow" - feature working perfectly, impressive result appearing on screen
+- FEATURE DEMO: Clean visual demonstration of a capability (ignore any narration)
+- SMOOTH WORKFLOW: Uninterrupted process from start to finish with clear visual flow
+
+**NEEDS EDITING**
+- ZOOM TARGET: Small UI element that viewers need to see clearly
+  → DaVinci: Use Transform controls. Right-click clip → Inspector → Zoom to 150-200%, position to center the element
+- SPEED UP: Repetitive action, typing, loading, scrolling
+  → DaVinci: Right-click clip → Change Clip Speed → try 200-400% for typing, 800% for loading screens
+- CUT POINT: Natural break, scene change, or topic transition
+  → DaVinci: Position playhead, press Ctrl+B (Blade tool), delete unwanted section
+- DEAD TIME: Nothing happening, mistakes, tangents - DELETE THIS
+  → DaVinci: Select clip section, press Delete
+
+**TRANSITIONS**
+- CHAPTER BREAK: Major topic change, good spot for a title card
+  → DaVinci: Add a Fusion title or simple text overlay between clips
+- SOFT CUT: Minor scene change, use a quick dissolve
+  → DaVinci: Effects Library → Video Transitions → Cross Dissolve, drag between clips
+
+ANALYSIS INSTRUCTIONS:
+
+1. **Watch for these patterns:**
+   - Cursor hovering = about to click something important
+   - Typing = usually speed up unless explaining as they type
+   - Loading spinners = definitely speed up or cut
+   - Mouse wandering = confused or thinking = candidate for cut
+   - Results appearing = HERO MOMENT, keep full speed or even slow down
+
+2. **For each clip, provide:**
+   - Timestamp (MM:SS)
+   - What's happening (brief description)
+   - Action: KEEP / ZOOM / SPEED UP / CUT / CHAPTER BREAK
+   - If editing needed: Exact DaVinci Resolve steps
+   - Priority: 1-10 (10 = absolutely essential, 1 = can cut if tight on time)
+
+3. **Pacing guidance:**
+   - Aim for 3-5 second clips for quick demos
+   - 10-15 seconds max for explanations
+   - Speed up anything over 5 seconds that's just "waiting"
+
+4. **Visual pacing notes:**
+   - Mark sections where cursor is idle or wandering (candidate for cut/speed up)
+   - Note UI transitions, loading states, and result displays
+   - Identify the "money shot" moments where features deliver results
+
+DAVINCI RESOLVE QUICK REFERENCE (include when relevant):
+- Zoom: Inspector → Transform → Zoom (or use Dynamic Zoom for animated push-in)
+- Speed: Right-click → Change Clip Speed (or Ctrl+R)
+- Cut: Blade tool (B), then Delete
+- Transition: Effects Library → Video Transitions
+- Text: Effects Library → Titles → Text+, drag to timeline above clip
+
+STRICT DISCARD (always mark as CUT):
+- Desktop showing before app opens
+- Browser tabs unrelated to demo
+- Password entry, login screens
+- Error messages being fixed
+- "Let me try that again" moments
+- Long pauses with no action (>3 seconds)
+- Scrolling that doesn't reveal anything new
+
+OUTPUT FORMAT:
+For each identified moment, you MUST include ALL of these fields:
+
+[MM:SS - MM:SS] ACTION_TYPE: Brief description of what's on screen
+Priority: X/10
+Visual Focus: What specific UI element or area should the viewer see?
+DaVinci Steps: REQUIRED - Give exact steps. Example: "Inspector → Transform → Zoom: 175%, Position X: -150 to center the button"
+Reasoning: Why this visual moment matters for the demo
+
+MANDATORY REQUIREMENTS:
+1. Every ZOOM TARGET must specify: zoom percentage (150-200%), and which UI element to center on
+2. Every SPEED UP must specify: recommended speed (200%, 400%, 800%) based on action type
+3. Every CUT must specify: what to cut TO (next clip, black, transition)
+4. Be SPECIFIC about UI elements: "the blue Submit button in the bottom-right of the modal" not just "the button"
+
+BAD example: "ZOOM TARGET: Clicking settings"
+GOOD example: "ZOOM TARGET: Clicking gear icon in top nav → DaVinci: Zoom 175%, center on gear icon (top-right corner), hold for 2 sec before click animation"
+
+Remember: You're teaching a complete beginner who has never used DaVinci Resolve. Every instruction must be actionable.`
+  },
+  {
     id: 'smart-edit-roadmap',
     name: 'Smart Edit Roadmap',
     isDefault: true,

@@ -28,10 +28,12 @@ FPV.AI Editor is a React application that uses Google's Gemini AI to analyze FPV
 
 ```bash
 npm install          # Install dependencies
-npm run dev          # Start dev server at http://localhost:3000
+npm run dev          # Start dev server at http://localhost:3006
 npm run build        # Production build
 npm run preview      # Preview production build
 ```
+
+**No test infrastructure** — no vitest/jest config or test files exist. Verify changes by running the dev server and testing in-browser.
 
 ## Environment Setup
 
@@ -58,30 +60,17 @@ If not set, users can enter API keys in the Settings UI. Frame extraction uses a
 
 **Stack**: React 19, Vite 6, TypeScript, Tailwind CSS, Google Gemini AI (@google/genai)
 
-**Key Files**:
-- `App.tsx` - Main component orchestrating UI layout and connecting hooks to components
-- `hooks/usePresets.ts` - Preset state management, localStorage sync, auto-backup, and disk persistence
-- `hooks/useVideoAnalysis.ts` - Video upload, analysis routing (Gemini vs Custom), progress tracking, playback state
-- `hooks/useAppSettings.ts` - App settings (provider, API keys), localStorage persistence, OpenRouter model fetching
-- `hooks/useProjects.ts` - Project CRUD operations, localStorage persistence, auto-backup, import/export
-- `components/PromptLab.tsx` - Prompt editing panel with preset selector, duration slider, AI polish
-- `components/ProjectsSidebar.tsx` - Left slide-in panel for saving/loading analysis sessions
-- `components/projects/ProjectListItem.tsx` - Project card with load/delete/export/rename actions
-- `components/VideoPlayer.tsx` - HTML5 video player with segment playback (start/end time control)
-- `components/ClipCard.tsx` - Displays individual clip metadata with FFmpeg copy command, caption/music triggers
-- `components/MusicPanel.tsx` - Slide-in panel for AI-powered music suggestions from Jamendo
-- `hooks/useMusic.ts` - Music panel state, Jamendo search, audio preview playback
-- `services/jamendoService.ts` - Jamendo API integration, music suggestion generation from clip analysis
-- `components/CaptionModal.tsx` - Social media caption generation modal with platform-specific outputs
-- `components/settings/SettingsModal.tsx` - Settings UI for provider selection, API keys, model picker, data backup
-- `components/settings/ModelSelectorModal.tsx` - OpenRouter model browser with search, filtering, pricing info
-- `services/geminiService.ts` - Gemini API integration: video upload, analysis with structured JSON output, category-aware prompt optimization
-- `services/localVLMService.ts` - Custom provider (OpenRouter/Ollama): adaptive frame extraction, VLM API calls
-- `services/openrouterService.ts` - Fetches available models from OpenRouter API with caching
-- `services/captionService.ts` - AI-generated social media captions for clips/videos (Instagram, TikTok, YouTube, Twitter)
-- `utils/exportUtils.ts` - EDL/FFmpeg/FCPXML generation, data export/import with auto-detection
-- `constants/defaultPresets.ts` - Default presets: FPV (Cinematic, Shorts, Technical, Crash) + Generic (Highlights, Tutorial, Sports, Event, B-Roll, Best Takes)
-- `types.ts` - Core interfaces: `ClipSegment`, `PromptPreset`, `VideoQueueItem`, `AppSettings`, `OpenRouterModel`, `Project`, `SocialCaptions`
+**Key Architectural Files**:
+- `App.tsx` - Orchestrator: creates all hooks, wires them to components, handles export logic
+- `types.ts` - All shared interfaces (`ClipSegment`, `PromptPreset`, `VideoQueueItem`, `AppSettings`, `Project`)
+- `hooks/useVideoAnalysis.ts` - Video queue management, provider routing (Gemini vs Custom), temporal constraint injection
+- `hooks/usePresets.ts` - Preset CRUD with hybrid persistence (localStorage + IndexedDB directory handle + File System Access API)
+- `services/geminiService.ts` - Gemini Files API upload with polling, structured JSON analysis, category-aware prompt optimization
+- `services/localVLMService.ts` - Client-side frame extraction via canvas, adaptive FPS calculation, OpenAI-compatible API calls
+- `services/mediaInfoService.ts` - WASM-based video metadata extraction (fps, resolution, codec) for accurate FCPXML export
+- `utils/exportUtils.ts` - EDL/FFmpeg/FCPXML generation with multi-source support, data import/export with format auto-detection
+- `constants/defaultPresets.ts` - FPV + Generic preset definitions with detailed system instructions
+- `transcode/convert.sh` - HEVC/NVENC transcoding helper script
 
 **Data Flow (Gemini - native video)**:
 1. User uploads video(s) → `uploadVideo()` sends to Gemini Files API with polling for PROCESSING state
@@ -115,7 +104,7 @@ If not set, users can enter API keys in the Settings UI. Frame extraction uses a
 - Music is free for personal use with attribution (Creative Commons)
 
 **AI Provider Notes**:
-- **Gemini**: Uses `gemini-2.5-flash` for native video analysis with structured JSON via `responseSchema`. Prompt optimization via `gemini-3-flash-preview` with category-aware guidelines (FPV vs generic).
+- **Gemini**: Uses `gemini-3-flash-preview` for video analysis and prompt optimization with structured JSON via `responseSchema`. Captions use `gemini-2.5-flash`.
 - **Custom (OpenRouter/Ollama)**: OpenAI-compatible API. Default model `qwen/qwen3-vl-235b-a22b-instruct`. Uses frame extraction since these APIs don't support video upload.
 - Clips use "MM:SS" time format internally across all providers
 
@@ -134,6 +123,11 @@ If not set, users can enter API keys in the Settings UI. Frame extraction uses a
 - Import auto-detects format (bundle, presets-only, or projects-only)
 
 **Path Alias**: `@/*` maps to project root (configured in tsconfig.json and vite.config.ts)
+
+**Dev Server Notes**:
+- Vite proxies `/api/jamendo/*` → `https://api.jamendo.com` to avoid CORS in development
+- Allowed hosts: `localhost` and `fpv.r3belmind.dev` (production)
+- PM2 deployment config in `ecosystem.config.cjs`
 
 ## Code Organization Guidelines
 
@@ -159,9 +153,6 @@ If not set, users can enter API keys in the Settings UI. Frame extraction uses a
 - Hooks: camelCase with `use` prefix (`useVideoAnalysis.ts`)
 - Utils/services: camelCase (`exportUtils.ts`)
 - Constants: SCREAMING_SNAKE_CASE for values, camelCase for files
-
-
----
 
 
 ---
