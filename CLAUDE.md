@@ -24,6 +24,8 @@ The app's core purpose is **clip identification + music suggestion + export to e
 
 FPV.AI Editor is a React application that uses Google's Gemini AI to analyze FPV drone footage and automatically identify highlight moments. Users upload video files, configure analysis presets, and export clips as EDL files (DaVinci Resolve/Premiere) or FFmpeg scripts.
 
+**Source files live in `src/`** — `App.tsx`, `types.ts`, `index.tsx` and all subdirectories (`components/`, `hooks/`, `services/`, `utils/`, `constants/`) are under `src/`. Config files (`vite.config.ts`, `tsconfig.json`, `index.html`, `package.json`) remain at the project root.
+
 ## Development Commands
 
 ```bash
@@ -34,6 +36,10 @@ npm run preview      # Preview production build
 ```
 
 **No test infrastructure** — no vitest/jest config or test files exist. Verify changes by running the dev server and testing in-browser.
+
+**No linting or formatting tools** — no ESLint, Prettier, or EditorConfig. Code style is enforced by convention only.
+
+**PM2 deployment** (`ecosystem.config.cjs`): Runs `npm run dev` (the Vite dev server), not a production build. This is intentional for the current single-user deployment at `fpv.r3belmind.dev`.
 
 ## Environment Setup
 
@@ -58,19 +64,31 @@ If not set, users can enter API keys in the Settings UI. Frame extraction uses a
 
 ## Architecture
 
-**Stack**: React 19, Vite 6, TypeScript, Tailwind CSS, Google Gemini AI (@google/genai)
+**Stack**: React 19, Vite 6, TypeScript, Tailwind CSS (CDN), Google Gemini AI (@google/genai), mediainfo.js (WASM)
 
-**Key Architectural Files**:
-- `App.tsx` - Orchestrator: creates all hooks, wires them to components, handles export logic
+**Dependency Strategy (CDN + Import Maps)**:
+`index.html` loads Tailwind CSS from CDN (`cdn.tailwindcss.com`) and declares browser import maps via esm.sh for `react`, `react-dom`, `recharts`, `@google/genai`, and `lucide-react`. These same packages appear in `package.json` for TypeScript type resolution, but at runtime the browser import map takes precedence. The `recharts` library is mapped but currently unused in any component. `public/MediaInfoModule.wasm` (2.5MB) is required at runtime for video metadata extraction via `mediainfo.js`.
+
+**Key Architectural Files** (all paths relative to `src/` unless noted):
+- `App.tsx` - Orchestrator (785 lines): creates all 5 hooks, wires them to components via props, handles export logic. Intentionally exceeds the 300-line guideline — it is the sole integration point and splitting it would require introducing a state management layer.
 - `types.ts` - All shared interfaces (`ClipSegment`, `PromptPreset`, `VideoQueueItem`, `AppSettings`, `Project`)
 - `hooks/useVideoAnalysis.ts` - Video queue management, provider routing (Gemini vs Custom), temporal constraint injection
 - `hooks/usePresets.ts` - Preset CRUD with hybrid persistence (localStorage + IndexedDB directory handle + File System Access API)
+- `hooks/useProjects.ts` - Project save/load, auto-backup with debounce, folder linking via File System Access API
+- `hooks/useAppSettings.ts` - Provider config, API key management, OpenRouter model list fetching
+- `hooks/useMusic.ts` - Music search/selection state, Jamendo integration coordination, audio preview playback
 - `services/geminiService.ts` - Gemini Files API upload with polling, structured JSON analysis, category-aware prompt optimization
+- `services/captionService.ts` - Social media caption generation via Gemini (Instagram, TikTok, YouTube, Twitter/X)
+- `services/openrouterService.ts` - OpenRouter model listing with caching, vision model filtering, fallback model list
 - `services/localVLMService.ts` - Client-side frame extraction via canvas, adaptive FPS calculation, OpenAI-compatible API calls
+- `services/jamendoService.ts` - Mood/energy analysis to music search terms, Jamendo API queries, royalty-free track results
 - `services/mediaInfoService.ts` - WASM-based video metadata extraction (fps, resolution, codec) for accurate FCPXML export
 - `utils/exportUtils.ts` - EDL/FFmpeg/FCPXML generation with multi-source support, data import/export with format auto-detection
-- `constants/defaultPresets.ts` - FPV + Generic preset definitions with detailed system instructions
-- `transcode/convert.sh` - HEVC/NVENC transcoding helper script
+- `constants/defaultPresets.ts` - FPV + Generic preset definitions with detailed system instructions (717 lines of prompt text)
+- `transcode/convert.sh` *(root, not in src/)* - HEVC/NVENC transcoding helper script
+
+**State Management (Prop Drilling, No Context API)**:
+All state lives in 5 custom hooks instantiated in `App.tsx`. Hook return values are passed as props to child components. There is no React Context, no Redux, no Zustand. Cross-hook coordination happens in `App.tsx` handler functions (e.g., `handleLoadProject` reads from projects, writes to presets, analysis, and music state). New features needing data from multiple hooks should add coordination logic in `App.tsx`.
 
 **Data Flow (Gemini - native video)**:
 1. User uploads video(s) → `uploadVideo()` sends to Gemini Files API with polling for PROCESSING state
@@ -104,7 +122,7 @@ If not set, users can enter API keys in the Settings UI. Frame extraction uses a
 - Music is free for personal use with attribution (Creative Commons)
 
 **AI Provider Notes**:
-- **Gemini**: Uses `gemini-3-flash-preview` for video analysis and prompt optimization with structured JSON via `responseSchema`. Captions use `gemini-2.5-flash`.
+- **Gemini**: Uses `gemini-3-flash-preview` for video analysis and prompt optimization with structured JSON via `responseSchema`. Caption generation (`captionService.ts`) uses `gemini-2.5-flash` with free-form JSON (no `responseSchema`).
 - **Custom (OpenRouter/Ollama)**: OpenAI-compatible API. Default model `qwen/qwen3-vl-235b-a22b-instruct`. Uses frame extraction since these APIs don't support video upload.
 - Clips use "MM:SS" time format internally across all providers
 
@@ -122,7 +140,7 @@ If not set, users can enter API keys in the Settings UI. Frame extraction uses a
 - Auto-backups: Static filenames that overwrite (`fpv-presets-auto-backup.json`, `fpv-projects-auto-backup.json`)
 - Import auto-detects format (bundle, presets-only, or projects-only)
 
-**Path Alias**: `@/*` maps to project root (configured in tsconfig.json and vite.config.ts)
+**Path Alias**: `@/*` maps to `src/` (configured in tsconfig.json and vite.config.ts)
 
 **Dev Server Notes**:
 - Vite proxies `/api/jamendo/*` → `https://api.jamendo.com` to avoid CORS in development
@@ -131,10 +149,12 @@ If not set, users can enter API keys in the Settings UI. Frame extraction uses a
 
 ## Code Organization Guidelines
 
-**Avoid monolithic files.** Keep files focused and under 300 lines when possible.
+**Avoid monolithic files.** Keep files focused and under 300 lines when possible. Known exceptions: `src/App.tsx` (785 lines, orchestrator), `src/constants/defaultPresets.ts` (717 lines, prompt text), `src/utils/exportUtils.ts` (523 lines, format generators).
 
-**File structure conventions:**
+**File structure conventions** (all under `src/`):
 - `components/` - React components, one per file. Extract sub-components when they exceed ~150 lines or are reusable.
+- `components/settings/` - Settings-related components (`SettingsModal`, `ModelSelectorModal`)
+- `components/projects/` - Project management sub-components (`ProjectListItem`)
 - `components/ui/` - Generic UI primitives (buttons, modals, inputs)
 - `hooks/` - Custom React hooks. Extract hooks from components when logic is reusable or complex.
 - `services/` - External API integrations (Gemini, file handling)
