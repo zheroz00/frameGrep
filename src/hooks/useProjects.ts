@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Project, ClipSegment, AnalysisProvider } from '../types';
+import { Project, ClipSegment, AnalysisProvider, SelectedMusicTrack } from '../types';
 
 const STORAGE_KEY = 'fpv_projects';
 const AUTO_BACKUP_KEY = 'fpv_projects_auto_backup';
@@ -64,6 +64,7 @@ export interface ProjectMetadata {
   presetId: string;
   presetInstruction: string;
   provider: AnalysisProvider;
+  selectedMusic?: SelectedMusicTrack | null;
 }
 
 export interface UseProjectsReturn {
@@ -76,7 +77,7 @@ export interface UseProjectsReturn {
 
   // Actions
   createProject: (clips: ClipSegment[], videoFilenames: string[], metadata: ProjectMetadata, name?: string) => Project;
-  updateProject: (id: string, clips: ClipSegment[]) => void;
+  updateProject: (id: string, clips: ClipSegment[], videoFilenames: string[], metadata: ProjectMetadata) => void;
   deleteProject: (id: string) => { title: string; message: string; onConfirm: () => void };
   renameProject: (id: string, name: string) => void;
 
@@ -249,6 +250,7 @@ export function useProjects(): UseProjectsReturn {
       presetId: metadata.presetId,
       presetInstruction: metadata.presetInstruction,
       provider: metadata.provider,
+      selectedMusic: metadata.selectedMusic || undefined,
     };
 
     const updated = [newProject, ...projects];
@@ -260,11 +262,25 @@ export function useProjects(): UseProjectsReturn {
     return newProject;
   }, [projects, saveToStorage, triggerAutoBackup]);
 
-  // Update existing project's clips
-  const updateProject = useCallback((id: string, clips: ClipSegment[]) => {
+  // Update existing project's contents and saved metadata
+  const updateProject = useCallback((
+    id: string,
+    clips: ClipSegment[],
+    videoFilenames: string[],
+    metadata: ProjectMetadata
+  ) => {
     const updated = projects.map(p =>
       p.id === id
-        ? { ...p, clips, updatedAt: new Date().toISOString() }
+        ? {
+            ...p,
+            clips,
+            videoFilenames,
+            presetId: metadata.presetId,
+            presetInstruction: metadata.presetInstruction,
+            provider: metadata.provider,
+            selectedMusic: metadata.selectedMusic || undefined,
+            updatedAt: new Date().toISOString()
+          }
         : p
     );
     setProjects(updated);

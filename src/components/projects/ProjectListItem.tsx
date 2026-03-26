@@ -49,7 +49,7 @@ const ProjectListItem: React.FC<ProjectListItemProps> = ({
 
   return (
     <div
-      className={`p-3 rounded-lg border transition-colors ${
+      className={`group p-3 rounded-lg border transition-colors ${
         isActive
           ? 'bg-amber-500/10 border-amber-500/50'
           : 'bg-zinc-800/50 border-zinc-700/50 hover:border-zinc-600'

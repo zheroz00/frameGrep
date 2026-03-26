@@ -1,7 +1,6 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, type ChangeEvent } from 'react';
 import { X, Save, Settings, Cloud, Server, RefreshCw, ChevronDown, Download, Upload, Database, Music } from 'lucide-react';
 import { UseAppSettingsReturn } from '../../hooks/useAppSettings';
-import { AnalysisProvider } from '../../types';
 import ModelSelectorModal from './ModelSelectorModal';
 import { exportAllAppData, importAllAppData } from '../../utils/exportUtils';
 
@@ -34,7 +33,7 @@ export default function SettingsModal({ isOpen, onClose, appSettings }: Settings
     onClose();
   };
 
-  const handleImportData = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportData = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 

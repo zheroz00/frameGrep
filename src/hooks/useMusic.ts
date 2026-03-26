@@ -4,6 +4,7 @@
  */
 
 import { useState, useCallback, useRef } from 'react';
+import type { RefObject } from 'react';
 import { ClipSegment, JamendoTrack, MusicSuggestion, MusicSearchMode, SelectedMusicTrack } from '../types';
 import { searchTracksForClips, searchTracks } from '../services/jamendoService';
 
@@ -30,7 +31,7 @@ export interface UseMusicReturn {
   currentlyPlaying: string | null;
   playTrack: (trackId: string, audioUrl: string) => void;
   stopPlayback: () => void;
-  audioRef: React.RefObject<HTMLAudioElement | null>;
+  audioRef: RefObject<HTMLAudioElement | null>;
 
   // Track selection & download
   selectedTrack: SelectedMusicTrack | null;

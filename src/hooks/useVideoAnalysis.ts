@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, type ChangeEvent } from 'react';
 import { uploadVideo, analyzeVideo, UploadPhase } from '../services/geminiService';
 import { analyzeVideoLocal, LocalVLMConfig } from '../services/localVLMService';
 import { extractVideoMetadata } from '../services/mediaInfoService';
@@ -102,7 +102,7 @@ export interface UseVideoAnalysisReturn {
   missingVideos: string[];
 
   // Actions
-  handleFilesUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  handleFilesUpload: (e: ChangeEvent<HTMLInputElement>) => void;
   removeFromQueue: (id: string) => void;
   clearQueue: () => void;
   runAnalysis: (
@@ -159,11 +159,11 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     };
   }, []);
 
-  const handleFilesUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFilesUpload = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    const newItems: VideoQueueItem[] = Array.from(files).map(file => ({
+    const newItems: VideoQueueItem[] = Array.from(files as FileList, (file: File) => ({
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       file,
       url: URL.createObjectURL(file),

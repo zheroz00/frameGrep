@@ -30,16 +30,26 @@ const fetchLocalModels = async (endpoint: string, apiKey?: string): Promise<Open
     }
 
     const data = await response.json();
-    const models = data.data || data.models || [];
+    const models = Array.isArray(data.data) ? data.data : Array.isArray(data.models) ? data.models : [];
 
     // Convert to OpenRouterModel format for compatibility
-    return models.map((m: { id: string; owned_by?: string }) => ({
-      id: m.id,
-      name: m.id.split('/').pop() || m.id,
-      context_length: 8192, // Default, local endpoints don't always provide this
-      pricing: { prompt: '0', completion: '0' },
-      description: `Local model from ${m.owned_by || 'local server'}`
-    }));
+    return models
+      .filter((m: { id?: string }) => typeof m.id === 'string')
+      .map((m: {
+        id: string;
+        name?: string;
+        owned_by?: string;
+        context_length?: number;
+        description?: string;
+      }) => ({
+        id: m.id,
+        name: m.name || m.id.split('/').pop() || m.id,
+        provider: m.owned_by || m.id.split('/')[0] || 'local',
+        context_length: typeof m.context_length === 'number' ? m.context_length : 8192,
+        prompt_price_per_1m: 0,
+        completion_price_per_1m: 0,
+        description: m.description || `Local model from ${m.owned_by || 'local server'}`
+      }));
   } catch (error) {
     console.error('Failed to fetch local models:', error);
     return [];

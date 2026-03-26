@@ -81,7 +81,7 @@ export async function extractVideoMetadata(file: File): Promise<VideoMetadata> {
       (t: { '@type': string }) => t['@type'] === 'General'
     );
     const durationMs = parseFloat(generalTrack?.Duration || videoTrack.Duration || '0');
-    const duration = durationMs > 0 ? durationMs : 0;
+    const duration = durationMs > 0 ? Math.round(durationMs) / 1000 : 0;
 
     console.log(`MediaInfo extracted for ${file.name}:`, { fps, width, height, codec, duration });
 

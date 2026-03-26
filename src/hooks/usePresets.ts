@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, type ChangeEvent, type RefObject } from 'react';
 import { PromptPreset, PresetCategory } from '../types';
 import { DEFAULT_PRESETS } from '../constants/defaultPresets';
 
@@ -70,7 +70,7 @@ export interface UsePresetsReturn {
   directoryHandle: FileSystemDirectoryHandle | null;
   hasPendingHandle: boolean; // True if there's a stored handle that needs user click to reconnect
   supportsFileSystemAccess: boolean;
-  importInputRef: React.RefObject<HTMLInputElement | null>;
+  importInputRef: RefObject<HTMLInputElement | null>;
   autoBackupEnabled: boolean;
   lastBackupTime: string | null;
   setActiveCategory: (category: PresetCategory) => void;
@@ -83,7 +83,8 @@ export interface UsePresetsReturn {
   savePreset: () => Promise<void>;
   deletePreset: (id: string) => { title: string; message: string; onConfirm: () => void } | null;
   resetToDefaults: () => { title: string; message: string; onConfirm: () => void };
-  handleImportPresets: (e: React.ChangeEvent<HTMLInputElement>) => Promise<{ imported: number; error?: string }>;
+  handleImportPresets: (e: ChangeEvent<HTMLInputElement>) => Promise<{ imported: number; error?: string }>;
+  loadProjectPreset: (presetId: string, presetInstruction: string) => void;
   connectToLocalFolder: () => Promise<void>;
   triggerBackupNow: () => void;
 }
@@ -99,6 +100,7 @@ export function usePresets(): UsePresetsReturn {
   const [directoryHandle, setDirectoryHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [hasPendingHandle, setHasPendingHandle] = useState(false);
   const pendingHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
+  const projectInstructionOverrideRef = useRef<string | null>(null);
   const [autoBackupEnabled, setAutoBackupEnabledState] = useState(() => {
     const saved = localStorage.getItem(AUTO_BACKUP_KEY);
     return saved === 'true';
@@ -242,9 +244,37 @@ export function usePresets(): UsePresetsReturn {
   useEffect(() => {
     const active = presets.find(p => p.id === activePresetId);
     if (active) {
-      setCurrentInstruction(active.instruction);
+      setCurrentInstruction(projectInstructionOverrideRef.current ?? active.instruction);
       setCurrentMaxDuration(active.maxDuration || 6);
+      projectInstructionOverrideRef.current = null;
     }
+  }, [activePresetId, presets]);
+
+  const loadProjectPreset = useCallback((presetId: string, presetInstruction: string) => {
+    const targetPreset = presets.find(p => p.id === presetId) || presets[0];
+    const nextInstruction = presetInstruction || targetPreset?.instruction || '';
+    const nextDuration = targetPreset?.maxDuration || 6;
+
+    projectInstructionOverrideRef.current = nextInstruction;
+
+    if (!targetPreset) {
+      setActiveCategory('custom');
+      setCurrentInstruction(nextInstruction);
+      setCurrentMaxDuration(nextDuration);
+      projectInstructionOverrideRef.current = null;
+      return;
+    }
+
+    setActiveCategory(targetPreset.category || 'custom');
+
+    if (targetPreset.id === activePresetId) {
+      setCurrentInstruction(nextInstruction);
+      setCurrentMaxDuration(nextDuration);
+      projectInstructionOverrideRef.current = null;
+      return;
+    }
+
+    setActivePresetId(targetPreset.id);
   }, [activePresetId, presets]);
 
   // Disk persistence
@@ -367,7 +397,7 @@ export function usePresets(): UsePresetsReturn {
     }
   });
 
-  const handleImportPresets = async (e: React.ChangeEvent<HTMLInputElement>): Promise<{ imported: number; error?: string }> => {
+  const handleImportPresets = async (e: ChangeEvent<HTMLInputElement>): Promise<{ imported: number; error?: string }> => {
     const file = e.target.files?.[0];
     if (!file) return { imported: 0 };
 
@@ -429,6 +459,7 @@ export function usePresets(): UsePresetsReturn {
     deletePreset,
     resetToDefaults,
     handleImportPresets,
+    loadProjectPreset,
     connectToLocalFolder,
     triggerBackupNow,
   };

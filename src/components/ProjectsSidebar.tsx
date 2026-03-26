@@ -1,8 +1,8 @@
 import React, { useRef, useState } from 'react';
 import {
-  FolderOpen, X, Download, Upload, Save, Film, Clock, AlertCircle, CheckCircle2, HardDrive
+  FolderOpen, X, Download, Upload, Save, Film, AlertCircle, CheckCircle2, HardDrive
 } from 'lucide-react';
-import { Project, ClipSegment, AnalysisProvider } from '../types';
+import { Project, ClipSegment, AnalysisProvider, SelectedMusicTrack } from '../types';
 import { UseProjectsReturn, ProjectMetadata } from '../hooks/useProjects';
 import ProjectListItem from './projects/ProjectListItem';
 
@@ -18,6 +18,7 @@ interface ProjectsSidebarProps {
   activePresetId: string;
   activePresetInstruction: string;
   provider: AnalysisProvider;
+  selectedMusic: SelectedMusicTrack | null;
   // Callbacks
   onLoadProject: (project: Project) => void;
   onConfirmAction: (action: { title: string; message: string; onConfirm: () => void }) => void;
@@ -33,6 +34,7 @@ const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
   activePresetId,
   activePresetInstruction,
   provider,
+  selectedMusic,
   onLoadProject,
   onConfirmAction,
 }) => {
@@ -47,6 +49,7 @@ const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
       presetId: activePresetId,
       presetInstruction: activePresetInstruction,
       provider,
+      selectedMusic,
     };
 
     const name = saveAsName.trim() || undefined;
@@ -58,7 +61,13 @@ const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
   const handleUpdateCurrent = () => {
     const currentProject = projects.getCurrentProject();
     if (currentProject) {
-      projects.updateProject(currentProject.id, currentClips);
+      const metadata: ProjectMetadata = {
+        presetId: activePresetId,
+        presetInstruction: activePresetInstruction,
+        provider,
+        selectedMusic,
+      };
+      projects.updateProject(currentProject.id, currentClips, videoFilenames, metadata);
     }
   };
 

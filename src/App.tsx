@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Upload, Zap, Video, Terminal, AlertTriangle, PlayCircle, Loader2,
   CloudUpload, Cpu, FileCode, Monitor, Sparkles, Wand2, AlertCircle,
@@ -18,7 +18,9 @@ import { useAppSettings } from './hooks/useAppSettings';
 import { useProjects } from './hooks/useProjects';
 import { useMusic } from './hooks/useMusic';
 import { generateEDLWithMode, generateFFmpegScriptWithMode, generateFCPXMLWithMode, filterClipsForExport, FCPXMLOptions } from './utils/exportUtils';
-import { ExportMode, Project, ClipSegment, CaptionMode, VideoMetadata } from './types';
+import { ExportMode, Project, ClipSegment, CaptionMode } from './types';
+
+const serializeComparable = (value: unknown): string => JSON.stringify(value ?? null);
 
 export default function App() {
   const [isPromptLabOpen, setIsPromptLabOpen] = useState(false);
@@ -51,6 +53,7 @@ export default function App() {
   // Destructure commonly used settings
   const { settings, updateProvider } = appSettings;
   const provider = settings.provider;
+  const currentVideoFilenames = analysis.videoQueue.map(v => v.file.name);
 
   // Compute export helpers
   const currentProject = projects.currentProjectId
@@ -61,6 +64,37 @@ export default function App() {
 
   // Get video metadata from first video in queue (for FCPXML export)
   const firstVideoMetadata = analysis.videoQueue.find(v => v.metadata)?.metadata;
+  const currentProjectMetadata = useMemo(() => ({
+    presetId: presets.activePresetId,
+    presetInstruction: presets.currentInstruction,
+    provider,
+    selectedMusic: music.selectedTrack,
+  }), [
+    presets.activePresetId,
+    presets.currentInstruction,
+    provider,
+    music.selectedTrack,
+  ]);
+
+  const hasUnsavedChanges = useMemo(() => {
+    if (!currentProject) {
+      return analysis.allClips.length > 0;
+    }
+
+    return (
+      currentProject.presetId !== currentProjectMetadata.presetId ||
+      currentProject.presetInstruction !== currentProjectMetadata.presetInstruction ||
+      currentProject.provider !== currentProjectMetadata.provider ||
+      serializeComparable(currentProject.videoFilenames) !== serializeComparable(currentVideoFilenames) ||
+      serializeComparable(currentProject.clips) !== serializeComparable(analysis.allClips) ||
+      serializeComparable(currentProject.selectedMusic) !== serializeComparable(currentProjectMetadata.selectedMusic)
+    );
+  }, [
+    currentProject,
+    currentProjectMetadata,
+    currentVideoFilenames,
+    analysis.allClips,
+  ]);
 
   const handleOptimizePrompt = async () => {
     const apiKey = settings.geminiApiKey;
@@ -129,6 +163,9 @@ export default function App() {
   };
 
   const handleLoadProject = (project: Project) => {
+    updateProvider(project.provider);
+    presets.loadProjectPreset(project.presetId, project.presetInstruction);
+    music.setSelectedTrack(project.selectedMusic ?? null);
     // Load clips from saved project into the analysis state
     analysis.loadClipsFromProject(project.clips, project.videoFilenames);
     setIsProjectsOpen(false);
@@ -357,11 +394,12 @@ export default function App() {
         onClose={() => setIsProjectsOpen(false)}
         projects={projects}
         currentClips={analysis.allClips}
-        videoFilenames={analysis.videoQueue.map(v => v.file.name)}
-        hasUnsavedChanges={analysis.allClips.length > 0 && !projects.currentProjectId}
+        videoFilenames={currentVideoFilenames}
+        hasUnsavedChanges={hasUnsavedChanges}
         activePresetId={presets.activePresetId}
         activePresetInstruction={presets.currentInstruction}
         provider={provider}
+        selectedMusic={music.selectedTrack}
         onLoadProject={handleLoadProject}
         onConfirmAction={handleConfirmAction}
       />
