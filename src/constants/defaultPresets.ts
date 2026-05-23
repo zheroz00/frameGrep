@@ -1,11 +1,16 @@
 import { PromptPreset } from '../types';
 
 /**
- * GEMINI 2.5 FLASH OPTIMIZATION STRATEGY:
- * 1. Signal-Based Detection: Visual/audio cues the model can actually "see" and "hear"
- * 2. Move Vocabulary: FPV jargon paired with visual definitions so output uses proper terms
- * 3. Chain-of-Thought: Mandatory "reasoning" field triggers self-correction logic
- * 4. Strict Discard Rules: Explicit "ignore" criteria reduces false positives
+ * PROMPT DESIGN PRINCIPLES (apply to all presets):
+ * 1. Signal-Based Detection: Describe visual/audio cues the model can actually "see" and
+ *    "hear" in extracted frames rather than relying on background knowledge.
+ * 2. Chain-of-Thought: Mandatory "reasoning" field encourages self-correction.
+ * 3. Discard Rules: Explicit "what to ignore" criteria reduces false positives — but keep
+ *    the language soft enough that the model doesn't reject mixed-content clips entirely.
+ *
+ * FPV presets additionally receive a canonical move dictionary auto-appended at runtime
+ * (see src/constants/fpvMoves.ts and src/hooks/useVideoAnalysis.ts). Do NOT re-define
+ * move vocabulary inline in FPV preset instructions — it would duplicate the dictionary.
  */
 
 export const DEFAULT_PRESETS: PromptPreset[] = [
@@ -22,17 +27,11 @@ export const DEFAULT_PRESETS: PromptPreset[] = [
 
 Objective: Extract the most visually stunning, smooth sequences that showcase continuous motion and artistic flying.
 
-MOVE VOCABULARY (use these terms in descriptions):
-- POWER LOOP: Fly under obstacle, pitch back past 90°, loop over top. Visual: ground → obstacle overhead → sky → ground in continuous arc.
-- ORBIT: 360° rotation around stationary object. Visual: subject stays dead center while world rotates around it.
-- DIVE & RECOVERY: Nose-down descent with pullout. Visual: ground rushes toward camera, then horizon levels.
-- PROXIMITY PASS: Gliding close to surfaces. Visual: wall/ground/water fills edge of frame with parallel motion.
-- SCENERY REVEAL: Movement that unveils a vista. Visual: obstacle exits frame to reveal landscape behind.
-
 VISUAL SIGNALS TO DETECT:
 - FLOW: Constant velocity with stable peripheral motion. Objects move smoothly from center to edges.
 - STABILITY: Zero horizon jitter. No prop-wash oscillation (rapid micro-vibrations).
 - SMOOTHNESS: Consistent speed without stuttering or sudden direction changes.
+- SCENERY REVEALS: Movement that unveils a vista — an obstacle exits frame to reveal a landscape behind, or the camera arcs to disclose new terrain.
 
 AUDIO SIGNALS:
 - Steady motor hum without erratic throttle blips
@@ -44,7 +43,7 @@ Scoring (1-10):
 - 5-6: Good moments but some instability or abrupt transitions
 - 1-4: Average flying, choppy, or uninteresting scenery
 
-STRICT DISCARD: Jittery/shaky footage, prop wash oscillation, ground footage, calibration sequences, jello effect.
+AVOID FAVORING (score these low — do NOT reject a clip outright for brief instances): sustained jittery/shaky sections, prop wash oscillation, extended pre-flight ground sequences, calibration sequences, jello artifact. These are common during takeoff and recovery — score them low only when they dominate the clip.
 
 For each clip, provide a "reasoning" field explaining WHY this clip exemplifies cinematic flow (e.g., "Smooth orbit with mountain reveal at apex, constant velocity throughout").`
   },
@@ -57,13 +56,6 @@ For each clip, provide a "reasoning" field explaining WHY this clip exemplifies 
     instruction: `Role: Social media content curator for viral FPV clips.
 
 Objective: Find high-energy, attention-grabbing moments that would perform well on TikTok, Instagram Reels, or YouTube Shorts.
-
-MOVE VOCABULARY (use these terms in descriptions):
-- GAP HIT: Threading through narrow openings. Visual: rapid expansion of opening in center of frame as drone passes through.
-- SPLIT-S: Roll 180° inverted, dive through. Visual: horizon flips upside-down, ground rushes up, exit opposite direction.
-- KNIFE EDGE: 90° roll through tight gap. Visual: horizon tilts 90°, gap passes sideways.
-- SPEED RUN: Maximum velocity section. Visual: extreme motion blur on edges, rapid object expansion from center.
-- SURPRISE DIVE: Unexpected drop. Visual: sudden pitch down, ground approaches fast.
 
 VISUAL SIGNALS TO DETECT:
 - INSTANT IMPACT: First-second hook. Look for sudden speed bursts, unexpected gaps, dramatic angle changes.
@@ -96,18 +88,7 @@ For each clip, provide a "reasoning" field explaining the viral appeal (e.g., "T
     maxDuration: 10,
     instruction: `Role: Technical FPV analyst specializing in precision flying and complex maneuvers.
 
-Objective: Identify moments of exceptional pilot skill - tight gaps, complex combos, and precision control.
-
-MOVE VOCABULARY (use these terms in descriptions):
-- MICRO GAP: Extremely tight opening. Visual: rapid expansion of small opening, margins within inches of frame edge.
-- MATTY FLIP: Reverse power loop - pitch forward while climbing, loop backward underneath. Visual: climb → world rotates forward → recovery below starting point.
-- SPLIT-S: Half-roll to inverted, then dive. Visual: horizon flips 180°, immediate dive toward ground.
-- IMMELMAN: Climb with half-loop, roll upright at top. Visual: sky fills frame → half-loop → roll to level.
-- KNIFE EDGE: 90° roll through gap. Visual: horizon rotates 90°, pass through sideways.
-- TRIPPY SPIN / INVERTED ORBIT: Circle object while inverted. Visual: object stays center, sky as reference, spinning yaw while upside-down.
-- PROXIMITY THREADING: Multiple obstacles in quick succession. Visual: rapid object avoidance, frequent near-edge passes.
-- JUICY COMBO: Chained maneuvers (e.g., gap → flip → gap). Visual: multiple distinct moves flowing into each other.
-- YAWED ENTRY: Gap approach while yawing. Visual: gap appears off-center, drone rotating as it passes through.
+Objective: Identify moments of exceptional pilot skill - tight gaps, complex combos, and precision control. Pay special attention to CHAINED maneuvers (gap → loop → gap, etc.) and YAWED ENTRIES (gap approach while rotating).
 
 VISUAL SIGNALS TO DETECT:
 - OCCLUSION EVENTS: Rapid passing through narrow openings - objects briefly block then clear frame edges.

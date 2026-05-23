@@ -54,7 +54,7 @@ export interface VideoMetadata {
   duration: number;      // Duration in seconds
 }
 
-export type QueueItemStatus = 'pending' | 'uploading' | 'processing' | 'analyzing' | 'complete' | 'error';
+export type QueueItemStatus = 'pending' | 'preparing' | 'uploading' | 'processing' | 'analyzing' | 'complete' | 'error';
 
 export interface VideoQueueItem {
   id: string;
@@ -64,6 +64,10 @@ export interface VideoQueueItem {
   clips: ClipSegment[];
   error?: string;
   metadata?: VideoMetadata; // Extracted video metadata
+  /** Blob URL of the transcoded file actually uploaded to Gemini, if transcoding occurred. Used for inspection. */
+  transcodedUrl?: string;
+  /** Byte size of the transcoded file, for displaying input → output reduction. */
+  transcodedSize?: number;
 }
 
 export type PresetCategory = 'fpv' | 'generic' | 'custom';
@@ -100,12 +104,24 @@ export interface OpenRouterModel {
   description: string;
 }
 
+// Gemini model selection (free-form to allow future additions without code changes)
+export type GeminiModel =
+  | 'gemini-2.5-flash-lite'
+  | 'gemini-3.1-flash-lite'
+  | 'gemini-3-flash-preview'
+  | 'gemini-2.5-flash'
+  | 'gemini-3.5-flash';
+
+export type GeminiMediaResolution = 'default' | 'low';
+
 // App settings (persisted to localStorage)
 export interface AppSettings {
   provider: AnalysisProvider;
   geminiApiKey: string;
+  geminiModel: GeminiModel;                       // Selected Gemini model for analysis
+  geminiMediaResolution: GeminiMediaResolution;   // Token/cost vs detail trade-off
   customConfig: CustomProviderConfig;
-  jamendoClientId?: string;  // For music suggestions feature
+  jamendoClientId?: string;                       // For music suggestions feature
 }
 
 // Social Media Captions (Issue #21)

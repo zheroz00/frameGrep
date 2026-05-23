@@ -12,10 +12,10 @@ export type FrameExtractionProgress = (current: number, total: number) => void;
 // Max frames to send to VLM
 // Cloud APIs (OpenRouter): 60 frames works well with large context windows
 // Local VLMs (vLLM/Ollama): 15-20 frames recommended for 8K context models
-const DEFAULT_MAX_FRAMES = 60;
-const LOCAL_MODEL_MAX_FRAMES = 15; // Safe default for 8K context local models
-const MIN_FPS = 0.1; // Minimum 1 frame per 10 seconds
-const MAX_FPS = 1.0; // Maximum 1 frame per second
+const DEFAULT_MAX_FRAMES = 200;          // cloud: Qwen3-VL 256K ctx handles ~200 frames comfortably
+const LOCAL_MODEL_MAX_FRAMES = 60;       // local llama-swap qwen3-vl-8b @ 65K ctx
+const MIN_FPS = 0.1;                     // 1 frame per 10s — long-clip floor
+const MAX_FPS = 4.0;                     // 1 frame per 0.25s — catches sub-second action (e.g. backflips)
 
 // Optional fixed FPS override from environment (e.g., 0.5, 1.0)
 const ENV_FPS_OVERRIDE = import.meta.env.VITE_FRAME_EXTRACTION_FPS
@@ -174,6 +174,8 @@ const buildAnalysisPrompt = (
 
   return `${systemInstruction}
 
+/no_think
+
 VIDEO CONTEXT:
 You are analyzing a video through ${frames.length} frames extracted at regular intervals.
 Frames: ${frameList}
@@ -222,6 +224,22 @@ const parseModelResponse = (response: string): ClipSegment[] => {
 
   try {
     const parsed = JSON.parse(jsonStr);
+
+    // Some models return an explicit refusal object instead of an array, e.g.
+    //   {"error": "All frames show ground footage. STRICT DISCARD applies..."}
+    // Surface that message verbatim so the user sees WHY the model refused,
+    // rather than a generic "Response is not an array" parser error.
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const refusal =
+        (parsed as { error?: string; message?: string; reason?: string }).error ??
+        (parsed as { message?: string }).message ??
+        (parsed as { reason?: string }).reason;
+      if (typeof refusal === 'string' && refusal.length > 0) {
+        throw new Error(`Model refused: ${refusal}. Try a different preset (e.g. "Generic") or relax STRICT DISCARD rules.`);
+      }
+      throw new Error('Response is not a clip array. Got: ' + JSON.stringify(parsed).slice(0, 200));
+    }
+
     if (!Array.isArray(parsed)) {
       throw new Error('Response is not an array');
     }
@@ -304,20 +322,36 @@ export const analyzeVideoLocal = async (
     headers['X-Title'] = 'FPV.AI Editor';
   }
 
+  // OpenRouter routes `anthropic/*` to whichever backend is cheapest by default.
+  // Bedrock's "claude-haiku-4.5" is actually the older claude-3-5-haiku-20241022,
+  // which doesn't support image input — so we force Anthropic-direct for vision.
+  const isAnthropicOpenRouter =
+    endpoint.includes('openrouter.ai') && config.model.startsWith('anthropic/');
+
+  const requestBody: Record<string, unknown> = {
+    model: config.model,
+    messages: [
+      {
+        role: 'user',
+        content
+      }
+    ],
+    temperature: 0.2,
+    // Higher cap so reasoning-mode models (Qwen3.x) have headroom to think AND emit JSON.
+    max_tokens: 16384,
+    // Honored by llama.cpp jinja templates for Qwen3.x — disables <think> blocks entirely.
+    chat_template_kwargs: { enable_thinking: false },
+    stream: true
+  };
+
+  if (isAnthropicOpenRouter) {
+    requestBody.provider = { order: ['Anthropic'], allow_fallbacks: false };
+  }
+
   const response = await fetch(`${endpoint}/chat/completions`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({
-      model: config.model,
-      messages: [
-        {
-          role: 'user',
-          content
-        }
-      ],
-      temperature: 0.2,
-      max_tokens: 4096
-    })
+    body: JSON.stringify(requestBody)
   });
 
   if (!response.ok) {
@@ -325,16 +359,81 @@ export const analyzeVideoLocal = async (
     throw new Error(`API request failed: ${response.status} - ${errorText}`);
   }
 
-  const data = await response.json();
-  const messageContent = data.choices?.[0]?.message?.content;
+  if (!response.body) {
+    throw new Error('Streaming response has no body');
+  }
 
-  if (!messageContent) {
-    throw new Error('No content in API response');
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let contentText = '';
+  let reasoningText = '';
+  let finishReason: string | null = null;
+  let lastTick = Date.now();
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE frames are separated by blank lines (\n\n). Process complete frames only;
+    // keep the trailing partial frame in the buffer for the next read.
+    let idx: number;
+    while ((idx = buffer.indexOf('\n\n')) !== -1) {
+      const frame = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+
+      for (const line of frame.split('\n')) {
+        if (!line.startsWith('data:')) continue;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === '[DONE]') continue;
+
+        try {
+          const chunk = JSON.parse(payload);
+          const delta = chunk.choices?.[0]?.delta || {};
+          if (typeof delta.content === 'string') contentText += delta.content;
+          if (typeof delta.reasoning_content === 'string') reasoningText += delta.reasoning_content;
+          const fr = chunk.choices?.[0]?.finish_reason;
+          if (fr) finishReason = fr;
+        } catch {
+          // Tolerate malformed chunks rather than blow up mid-stream.
+        }
+      }
+    }
+
+    const now = Date.now();
+    if (now - lastTick > 5000) {
+      const chars = contentText.length + reasoningText.length;
+      onProgress?.('analyzing', `Streaming response... ${chars} chars received`);
+      lastTick = now;
+    }
   }
 
   onProgress?.('parsing', 'Parsing results...');
 
-  return parseModelResponse(messageContent);
+  // Prefer content; fall back to reasoning_content for thinking models that
+  // ignore /no_think and emit the JSON inside their reasoning channel instead.
+  const sources: Array<[string, string]> = [
+    ['content', contentText],
+    ['reasoning_content', reasoningText]
+  ];
+
+  let lastError: unknown = null;
+  for (const [name, text] of sources) {
+    if (!text.trim()) continue;
+    try {
+      return parseModelResponse(text);
+    } catch (e) {
+      lastError = e;
+      console.warn(`Failed to parse model response from ${name}:`, e);
+    }
+  }
+
+  if (!contentText.trim() && !reasoningText.trim()) {
+    throw new Error(`No content in streamed response (finish_reason=${finishReason ?? 'unknown'})`);
+  }
+  throw new Error(`Failed to parse streamed model response: ${lastError}`);
 };
 
 /**

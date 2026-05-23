@@ -1,5 +1,5 @@
-import { GoogleGenAI, Schema, Type, HarmBlockThreshold, HarmCategory } from "@google/genai";
-import { ClipSegment } from "../types";
+import { GoogleGenAI, Schema, Type, HarmBlockThreshold, HarmCategory, MediaResolution } from "@google/genai";
+import { ClipSegment, GeminiModel, GeminiMediaResolution } from "../types";
 
 // Schema definition for structured JSON output
 const clipSchema: Schema = {
@@ -67,7 +67,7 @@ const clipSchema: Schema = {
   },
 };
 
-export type UploadPhase = 'uploading' | 'processing';
+export type UploadPhase = 'preparing' | 'uploading' | 'processing';
 export type ProgressCallback = (phase: UploadPhase, detail?: { attempt?: number; maxAttempts?: number }) => void;
 
 /**
@@ -129,15 +129,23 @@ export const analyzeVideo = async (
   apiKey: string,
   fileUri: string,
   mimeType: string,
-  systemInstruction: string
+  systemInstruction: string,
+  model: GeminiModel = 'gemini-3.1-flash-lite',
+  mediaResolution: GeminiMediaResolution = 'low'
 ): Promise<ClipSegment[]> => {
   if (!apiKey) throw new Error("API Key is required");
 
   const ai = new GoogleGenAI({ apiKey });
 
+  // Map our UI-level setting to the SDK enum.
+  // The SDK doesn't expose a literal MEDIA_RESOLUTION_DEFAULT; UNSPECIFIED is the
+  // documented value to let the model choose its own default.
+  const sdkMediaResolution: MediaResolution =
+    mediaResolution === 'low' ? MediaResolution.MEDIA_RESOLUTION_LOW : MediaResolution.MEDIA_RESOLUTION_UNSPECIFIED;
+
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview", // Upgraded from 2.5-flash for 4x faster video analysis
+      model,
       contents: {
         parts: [
           {
@@ -156,6 +164,7 @@ export const analyzeVideo = async (
         responseMimeType: "application/json",
         responseSchema: clipSchema,
         temperature: 0.2,
+        mediaResolution: sdkMediaResolution,
         safetySettings: [
           {
             category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
@@ -187,7 +196,8 @@ const OPTIMIZATION_GUIDELINES: Record<string, string> = {
 3. Ensure the model focuses on temporal cues specific to FPV: motor audio, motion flow, proximity to obstacles, and flight dynamics.
 4. Maintain the structure so it still works for JSON extraction.
 5. DO NOT mention the output schema itself (that is handled separately).
-6. Return ONLY the improved instruction text.`,
+6. DO NOT include a "MOVE VOCABULARY" section or per-move definitions in the rewrite. A canonical FPV move dictionary is appended automatically at runtime — duplicating it here would inflate the prompt. Focus the rewrite on role, objective, visual/audio signals, scoring rubric, and discard rules only.
+7. Return ONLY the improved instruction text.`,
 
   generic: `Guidelines for the new version:
 1. Use clear, professional language appropriate for the content type being analyzed.

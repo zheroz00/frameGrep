@@ -2,22 +2,6 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## User info
-My name is Marc (Captain Awesome.) ;) Here are a few important notes about me. Please keep these in mind when I'm starting to veer off path.
-- I'm a former Systems Engineer
-- I'm 49, single male, no dependancies.
-- Hobbies includes, woodworking, CNC router and laser, freestyle dancing, FPV drones, coding, hyper-ebikes.
-- I have weapons grade ADHD with a major side of imposter syndrome with is completely unwarranted.
-- Ask me about my website if we're doing anything where more info about me would be useful.
-- I tend to go `Rabbit Holing` where I go down a rabbit hole and don't emerge for hours. This can happen without me even realizing it.
-- Smaller tasks are easily to accomplish simply because of the satifaction of knocking something, ANYTHING off the list.
-- Question me about my choices if they are off-topic, unrelated to the project, bizarre, etc. e.g. I may ask for a feature and you will say "Sure!" and create it. But what you don't tell me is that you created a magical bridge to make it work. Those are the kind of things I want to know beforehand. 
-- Before we start adding features, ask me about the end-goal, or why I want to do that. I want to at least explain my reasoning so you can let me know what you think.
-- I have countless projects at 95% and for whatever reason I never complete them. I need to start understanding there is a reason people release v1, then v2. I always feel things need to be perfect before I release anything.
-- I am painfully self-aware of what I'm doing and that makes me nuts.
-- Always feel free to ask me about anything as we go.
-
-
 The app's core purpose is **clip identification + music suggestion + export to external tools**. Features that turn it into a full video editor should be questioned and discussed before implementation.
 
 ## Project Overview
@@ -84,17 +68,22 @@ If not set, users can enter API keys in the Settings UI. Frame extraction uses a
 - `services/jamendoService.ts` - Mood/energy analysis to music search terms, Jamendo API queries, royalty-free track results
 - `services/mediaInfoService.ts` - WASM-based video metadata extraction (fps, resolution, codec) for accurate FCPXML export
 - `utils/exportUtils.ts` - EDL/FFmpeg/FCPXML generation with multi-source support, data import/export with format auto-detection
-- `constants/defaultPresets.ts` - FPV + Generic preset definitions with detailed system instructions (717 lines of prompt text)
-- `transcode/convert.sh` *(root, not in src/)* - HEVC/NVENC transcoding helper script
+- `constants/defaultPresets.ts` - FPV + Generic preset definitions. FPV preset instructions are role + scoring only — the canonical move vocabulary is sourced separately from `fpvMoves.ts` and appended at prompt-build time.
+- `constants/fpvMoves.ts` - Canonical FPV maneuver dictionary (22 moves: rotations, orbits, gaps, proximity, combos, vertical, hover). Exported as structured `FpvMove[]` plus `renderFpvMoveDictionary()` which formats them into prompt text. Auto-appended to every FPV preset's instruction by `useVideoAnalysis.ts`.
+- `services/transcodeService.ts` - Client-side wrapper that POSTs raw video bytes to the `/api/transcode` Vite middleware (server-side NVENC ffmpeg). Used when a file exceeds Gemini's 2GB / 4K / 100Mbps limits — downscales to 720p max for upload. Returns a new `File` plus streaming progress.
+- `components/FpvMoveDictionaryPanel.tsx` - Collapsible read-only dictionary viewer shown in Prompt Lab when the active category is `fpv`. Lets the user browse what the model is being taught.
+- `transcode/convert.sh` *(root, not in src/)* - HEVC/NVENC transcoding helper script (standalone CLI, separate from the in-app transcode service)
 
 **State Management (Prop Drilling, No Context API)**:
 All state lives in 5 custom hooks instantiated in `App.tsx`. Hook return values are passed as props to child components. There is no React Context, no Redux, no Zustand. Cross-hook coordination happens in `App.tsx` handler functions (e.g., `handleLoadProject` reads from projects, writes to presets, analysis, and music state). New features needing data from multiple hooks should add coordination logic in `App.tsx`.
 
 **Data Flow (Gemini - native video)**:
-1. User uploads video(s) → `uploadVideo()` sends to Gemini Files API with polling for PROCESSING state
-2. User triggers analysis → `analyzeVideo()` sends video URI + system instruction to Gemini with JSON schema
-3. Response parsed into `ClipSegment[]` (start_time, end_time, description, excitement_score, mood, lighting, dominant_colors)
-4. User exports as EDL, FFmpeg script, or FCPXML (DaVinci Resolve) via `exportUtils`
+1. User uploads video(s) → kept as local blob URLs
+2. User triggers analysis → `shouldTranscode()` checks file size / resolution / bitrate. If in-spec (≤2GB, ≤4K, ≤100Mbps): skip. If out-of-spec: `transcodeVideo()` POSTs bytes to `/api/transcode` (server-side NVENC, downscales to 720p) and the result blob URL is stored on the queue item as `transcodedUrl` so the user can preview what's actually being sent.
+3. (Possibly-transcoded) file → `uploadVideo()` sends to Gemini Files API with polling for PROCESSING state
+4. User triggers analysis → `analyzeVideo()` sends video URI + system instruction (preset + auto-appended FPV move dictionary + temporal constraint) to Gemini with JSON schema
+5. Response parsed into `ClipSegment[]` (start_time, end_time, description, excitement_score, mood, lighting, dominant_colors)
+6. User exports as EDL, FFmpeg script, or FCPXML (DaVinci Resolve) via `exportUtils`
 
 **Data Flow (Custom/OpenRouter - frame extraction)**:
 1. User uploads video(s) → stored as local blob URLs
@@ -103,11 +92,12 @@ All state lives in 5 custom hooks instantiated in `App.tsx`. Hook return values 
 4. Response parsed into `ClipSegment[]`, user exports via `exportUtils`
 
 **Adaptive Frame Extraction** (`localVLMService.ts`):
-- VLMs have image limits (~50-100 per request)
-- Frame rate adapts to video duration: `fps = min(1.0, max(0.1, 60 / duration))`
-- Short videos (< 60s): 1 fps (max precision)
-- Long videos (> 60s): Reduced fps to stay under 60 frames
-- Frames scaled to max 1280x720 to reduce token cost
+- Frame budget: 200 frames for cloud VLMs (Qwen3-VL on OpenRouter handles ~256K context), 60 frames for local llama-swap (Qwen3-VL-8B @ 65K context).
+- Frame rate adapts to video duration: `fps = max(MIN_FPS, min(MAX_FPS, maxFrames / duration))` where `MIN_FPS=0.1`, `MAX_FPS=4.0`.
+- Short clips (< 15s on cloud): clamps at 4 fps — enough to catch sub-second action like backflips.
+- Long videos: reduced fps to stay under the frame budget.
+- Frames scaled to max 1280x720 JPEG at quality 0.7 to reduce token cost.
+- Local VLMs receive `/no_think` directive in the prompt + `chat_template_kwargs.enable_thinking: false` to disable Qwen3.x reasoning blocks (otherwise they burn the token budget before emitting JSON).
 
 **Multi-Video Support**:
 - Queue multiple videos for batch processing
@@ -122,12 +112,14 @@ All state lives in 5 custom hooks instantiated in `App.tsx`. Hook return values 
 - Music is free for personal use with attribution (Creative Commons)
 
 **AI Provider Notes**:
-- **Gemini**: Uses `gemini-3-flash-preview` for video analysis and prompt optimization with structured JSON via `responseSchema`. Caption generation (`captionService.ts`) uses `gemini-2.5-flash` with free-form JSON (no `responseSchema`).
-- **Custom (OpenRouter/Ollama)**: OpenAI-compatible API. Default model `qwen/qwen3-vl-235b-a22b-instruct`. Uses frame extraction since these APIs don't support video upload.
+- **Gemini**: Default analysis model is `gemini-2.5-flash-lite` — chosen based on Marc's empirical testing (5 accurate clips vs 1 from `gemini-3.1-flash-lite` on the same FPV footage; see `docs/model_test_notes.md`). User can switch via Settings dropdown; choice is auto-saved to localStorage. Prompt optimization ("AI Polish" button) uses `gemini-3-flash-preview` hardcoded. Caption generation (`captionService.ts`) uses `gemini-2.5-flash` with free-form JSON. All analysis uses structured JSON via `responseSchema`.
+- **FPV preset prompts** auto-append the canonical move dictionary (`fpvMoves.ts`) at runtime via `useVideoAnalysis.ts`. AI Polish is instructed to NOT generate a `MOVE VOCABULARY` section to avoid duplication.
+- **Custom (OpenRouter/Ollama/vLLM)**: OpenAI-compatible API. Default model `qwen/qwen3-vl-235b-a22b-instruct`. Uses frame extraction since these APIs don't support video upload natively. Anthropic-direct provider is force-pinned for `anthropic/*` models on OpenRouter (Bedrock substitutes a non-vision Haiku otherwise).
 - Clips use "MM:SS" time format internally across all providers
 
 **Data Persistence**:
-- All app data stored in browser localStorage (keys: `fpv_presets`, `fpv_projects`, `fpv_settings`)
+- All app data stored in browser localStorage. Active keys: `fpv_app_settings`, `fpv_presets`, `fpv_projects`. Settings auto-save 500ms after every change (no manual "save" required — the Settings modal's "Save Settings" button is essentially redundant but kept for clarity).
+- An orphan `fpv_settings` key from a pre-rename version of the code is auto-removed on load by a one-shot cleanup in `useAppSettings.ts`. New installs never see it.
 - Presets: Custom presets saved alongside defaults. Editing a default preset saves modified version.
 - Projects: Save analysis sessions (clips + metadata) for later reload. Videos must be re-uploaded.
 - Auto-backup: Optional feature that saves JSON backup 30s after changes (debounced)
@@ -144,12 +136,13 @@ All state lives in 5 custom hooks instantiated in `App.tsx`. Hook return values 
 
 **Dev Server Notes**:
 - Vite proxies `/api/jamendo/*` → `https://api.jamendo.com` to avoid CORS in development
+- Vite middleware exposes `POST /api/transcode` — receives raw video bytes, spawns NVENC ffmpeg child process on GPU 1, streams output back as fragmented MP4. Defined in `vite.config.ts` (`nvencTranscodeMiddleware`). Used by `services/transcodeService.ts` for files exceeding Gemini's upload limits.
 - Allowed hosts: `localhost` and `fpv.r3belmind.dev` (production)
 - PM2 deployment config in `ecosystem.config.cjs`
 
 ## Code Organization Guidelines
 
-**Avoid monolithic files.** Keep files focused and under 300 lines when possible. Known exceptions: `src/App.tsx` (785 lines, orchestrator), `src/constants/defaultPresets.ts` (717 lines, prompt text), `src/utils/exportUtils.ts` (523 lines, format generators).
+**Avoid monolithic files.** Keep files focused and under 300 lines when possible. Known exceptions: `src/App.tsx` (~800 lines, orchestrator), `src/constants/defaultPresets.ts` (~700 lines, prompt text), `src/constants/fpvMoves.ts` (~430 lines, dictionary content), `src/utils/exportUtils.ts` (~520 lines, format generators).
 
 **File structure conventions** (all under `src/`):
 - `components/` - React components, one per file. Extract sub-components when they exceed ~150 lines or are reusable.

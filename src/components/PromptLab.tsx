@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { PromptPreset, PresetCategory } from '../types';
 import { exportPresetsToJSON } from '../utils/exportUtils';
+import FpvMoveDictionaryPanel from './FpvMoveDictionaryPanel';
 
 const CATEGORY_CONFIG: Record<PresetCategory, { label: string; icon: React.ReactNode }> = {
   fpv: { label: 'FPV Drone', icon: <Plane size={14} /> },
@@ -261,6 +262,9 @@ const PromptLab: React.FC<PromptLabProps> = ({
                 </button>
               </div>
             </div>
+
+            {/* FPV Move Dictionary (FPV category only) */}
+            {activeCategory === 'fpv' && <FpvMoveDictionaryPanel />}
 
             {/* Save Logic */}
             <div className="flex items-center gap-2">

@@ -1,8 +1,23 @@
 import { useState, useRef, type ChangeEvent } from 'react';
-import { X, Save, Settings, Cloud, Server, RefreshCw, ChevronDown, Download, Upload, Database, Music } from 'lucide-react';
+import { X, Save, Settings, Cloud, Server, RefreshCw, ChevronDown, Download, Upload, Database, Music, CheckCircle2 } from 'lucide-react';
 import { UseAppSettingsReturn } from '../../hooks/useAppSettings';
 import ModelSelectorModal from './ModelSelectorModal';
 import { exportAllAppData, importAllAppData } from '../../utils/exportUtils';
+import { GeminiModel } from '../../types';
+
+interface GeminiModelOption {
+  id: GeminiModel;
+  label: string;
+  description: string;
+}
+
+const GEMINI_MODEL_OPTIONS: GeminiModelOption[] = [
+  { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite', description: 'Recommended — ~$0.0024/60s, best FPV clip detection in testing (5 clips on backflip sample)' },
+  { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite', description: 'Current GA — ~$0.0068/60s, but tends to over-merge FPV clips in testing' },
+  { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview', description: 'Preview — ~$0.0135/60s, strong on individual tricks (e.g. backflip detection)' },
+  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', description: 'Standard — ~$0.0092/60s, proven workhorse' },
+  { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', description: 'Premium — ~$0.0405/60s, deepest reasoning' },
+];
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -22,11 +37,16 @@ export default function SettingsModal({ isOpen, onClose, appSettings }: Settings
     loadingModels,
     updateProvider,
     updateGeminiApiKey,
+    updateGeminiModel,
+    updateGeminiMediaResolution,
     updateCustomConfig,
     updateJamendoClientId,
     saveSettings,
     refreshModels
   } = appSettings;
+
+  const selectedGeminiModelDescription =
+    GEMINI_MODEL_OPTIONS.find(o => o.id === settings.geminiModel)?.description || '';
 
   const handleSave = () => {
     saveSettings();
@@ -133,29 +153,89 @@ export default function SettingsModal({ isOpen, onClose, appSettings }: Settings
 
             {/* Gemini Settings */}
             {settings.provider === 'gemini' && (
-              <div>
-                <label className="block text-sm font-medium text-zinc-300 mb-2">
-                  Gemini API Key
-                </label>
-                <input
-                  type="password"
-                  value={settings.geminiApiKey}
-                  onChange={(e) => updateGeminiApiKey(e.target.value)}
-                  placeholder="AIza..."
-                  className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-200 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500"
-                />
-                <p className="text-xs text-zinc-500 mt-1">
-                  Get your key from{' '}
-                  <a
-                    href="https://aistudio.google.com/app/apikey"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-amber-400 hover:underline"
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-zinc-300 mb-2">
+                    Gemini API Key
+                  </label>
+                  <input
+                    type="password"
+                    value={settings.geminiApiKey}
+                    onChange={(e) => updateGeminiApiKey(e.target.value)}
+                    placeholder="AIza..."
+                    className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-200 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500"
+                  />
+                  <p className="text-xs text-zinc-500 mt-1">
+                    Get your key from{' '}
+                    <a
+                      href="https://aistudio.google.com/app/apikey"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-amber-400 hover:underline"
+                    >
+                      Google AI Studio
+                    </a>
+                  </p>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label htmlFor="gemini-model-select" className="block text-sm font-medium text-zinc-300">
+                      Gemini Model
+                    </label>
+                    <span className="text-[10px] text-emerald-500/80 flex items-center gap-1" title="Your model selection auto-saves to browser storage on change and is restored every time the app loads.">
+                      <CheckCircle2 size={10} /> Auto-saved as your default
+                    </span>
+                  </div>
+                  <select
+                    id="gemini-model-select"
+                    value={settings.geminiModel}
+                    onChange={(e) => updateGeminiModel(e.target.value as GeminiModel)}
+                    className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-200 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500"
                   >
-                    Google AI Studio
-                  </a>
-                </p>
-              </div>
+                    {GEMINI_MODEL_OPTIONS.map(opt => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-zinc-500 mt-1">
+                    {selectedGeminiModelDescription}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-zinc-300 mb-2">
+                    Media Resolution
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateGeminiMediaResolution('low')}
+                      className={`px-3 py-2 rounded-lg border text-sm font-medium transition-colors text-left ${
+                        settings.geminiMediaResolution === 'low'
+                          ? 'border-amber-500 bg-amber-500/10 text-white'
+                          : 'border-zinc-800 bg-zinc-950 text-zinc-300 hover:border-zinc-700'
+                      }`}
+                    >
+                      <div>Low</div>
+                      <div className="text-xs text-zinc-500 mt-0.5">3x cheaper, ~no quality loss for FPV</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateGeminiMediaResolution('default')}
+                      className={`px-3 py-2 rounded-lg border text-sm font-medium transition-colors text-left ${
+                        settings.geminiMediaResolution === 'default'
+                          ? 'border-amber-500 bg-amber-500/10 text-white'
+                          : 'border-zinc-800 bg-zinc-950 text-zinc-300 hover:border-zinc-700'
+                      }`}
+                    >
+                      <div>Default</div>
+                      <div className="text-xs text-zinc-500 mt-0.5">Sharper, $$</div>
+                    </button>
+                  </div>
+                </div>
+              </>
             )}
 
             {/* Custom Provider Settings */}

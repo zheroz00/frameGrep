@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import {
   Upload, Zap, Video, Terminal, AlertTriangle, PlayCircle, Loader2,
   CloudUpload, Cpu, FileCode, Monitor, Sparkles, Wand2, AlertCircle,
-  X, CheckCircle2, XCircle, Film, Server, Cloud, Settings, FolderOpen, Hash, Music, Link2
+  X, CheckCircle2, XCircle, Film, Server, Cloud, Settings, FolderOpen, Hash, Music, Link2, ExternalLink
 } from 'lucide-react';
 import { optimizeSystemInstruction } from './services/geminiService';
 import VideoPlayer from './components/VideoPlayer';
@@ -158,7 +158,11 @@ export default function App() {
       presets.currentInstruction,
       presets.currentMaxDuration,
       presets.activeCategory,
-      provider === 'custom' ? settings.customConfig : undefined
+      {
+        localConfig: provider === 'custom' ? settings.customConfig : undefined,
+        geminiModel: settings.geminiModel,
+        geminiMediaResolution: settings.geminiMediaResolution,
+      }
     );
   };
 
@@ -533,6 +537,7 @@ export default function App() {
                       >
                         <div className="flex-shrink-0">
                           {item.status === 'pending' && <div className="w-3 h-3 rounded-full bg-zinc-600" />}
+                          {item.status === 'preparing' && <Settings size={12} className="text-emerald-400 animate-spin" />}
                           {item.status === 'uploading' && <CloudUpload size={12} className="text-cyan-400 animate-bounce" />}
                           {item.status === 'processing' && <Cpu size={12} className="text-amber-400 animate-pulse" />}
                           {item.status === 'analyzing' && <Sparkles size={12} className="text-purple-400 animate-pulse" />}
@@ -541,6 +546,17 @@ export default function App() {
                           {item.status === 'error' && <XCircle size={12} className="text-red-500" />}
                         </div>
                         <span className={`flex-1 truncate ${item.url ? 'text-zinc-400' : 'text-amber-400/70'}`}>{item.file.name}</span>
+                        {item.transcodedUrl && (
+                          <a
+                            href={item.transcodedUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-amber-400/70 hover:text-amber-400 text-[10px] flex items-center gap-1 transition-colors shrink-0"
+                            title={`Open the transcoded file sent to Gemini in a new tab. Source ${(item.file.size / 1_048_576).toFixed(0)} MB → uploaded ${((item.transcodedSize ?? 0) / 1_048_576).toFixed(0)} MB. Server downscales to 720p.`}
+                          >
+                            <ExternalLink size={10} /> sent
+                          </a>
+                        )}
                         {item.status === 'complete' && item.url && (
                           <span className="text-green-500/70">{item.clips.length} clips</span>
                         )}
@@ -571,11 +587,13 @@ export default function App() {
                 <div className="mt-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className={`flex items-center gap-3 text-sm font-medium ${
+                      analysis.uploadPhase === 'preparing' ? 'text-emerald-400' :
                       analysis.uploadPhase === 'uploading' ? 'text-cyan-400' :
                       analysis.uploadPhase === 'processing' ? 'text-amber-400' :
                       analysis.uploadPhase === 'extracting' ? 'text-orange-400' :
                       'text-purple-400'
                     }`}>
+                      {analysis.uploadPhase === 'preparing' && <Settings size={16} className="animate-spin" />}
                       {analysis.uploadPhase === 'uploading' && <CloudUpload size={16} className="animate-bounce" />}
                       {analysis.uploadPhase === 'processing' && <Cpu size={16} className="animate-pulse" />}
                       {analysis.uploadPhase === 'extracting' && <Film size={16} className="animate-pulse" />}
@@ -588,8 +606,9 @@ export default function App() {
                         )}
                         {analysis.phaseDetail || (
                           <>
-                            {analysis.uploadPhase === 'uploading' && "Uploading to Gemini..."}
-                            {analysis.uploadPhase === 'processing' && `Processing (${analysis.processingProgress.attempt}/${analysis.processingProgress.maxAttempts})...`}
+                            {analysis.uploadPhase === 'preparing' && "NVENC transcoding (GPU 1)..."}
+                            {analysis.uploadPhase === 'uploading' && "Uploading to Gemini Files API..."}
+                            {analysis.uploadPhase === 'processing' && `Gemini processing video on Google servers (${analysis.processingProgress.attempt}/${analysis.processingProgress.maxAttempts} polls, ${analysis.processingProgress.attempt * 2}s elapsed)...`}
                             {analysis.uploadPhase === 'extracting' && "Extracting video frames..."}
                             {analysis.uploadPhase === 'analyzing' && "AI analyzing footage..."}
                           </>
@@ -602,10 +621,14 @@ export default function App() {
                       {Math.floor(analysis.elapsedTime / 60)}:{String(analysis.elapsedTime % 60).padStart(2, '0')}
                     </span>
                   </div>
-                  {analysis.uploadPhase === 'processing' && (
+                  {(analysis.uploadPhase === 'preparing' || analysis.uploadPhase === 'processing') && (
                     <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
                       <div
-                        className="h-full bg-gradient-to-r from-amber-500 to-orange-500 transition-all duration-500"
+                        className={`h-full transition-all duration-500 ${
+                          analysis.uploadPhase === 'preparing'
+                            ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
+                            : 'bg-gradient-to-r from-amber-500 to-orange-500'
+                        }`}
                         style={{ width: `${Math.min((analysis.processingProgress.attempt / analysis.processingProgress.maxAttempts) * 100, 100)}%` }}
                       />
                     </div>

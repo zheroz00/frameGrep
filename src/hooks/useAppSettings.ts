@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { AppSettings, AnalysisProvider, CustomProviderConfig, OpenRouterModel } from '../types';
+import { AppSettings, AnalysisProvider, CustomProviderConfig, OpenRouterModel, GeminiModel, GeminiMediaResolution } from '../types';
 import { fetchOpenRouterModels, filterVisionModels } from '../services/openrouterService';
 
 const SETTINGS_KEY = 'fpv_app_settings';
@@ -60,6 +60,8 @@ const fetchLocalModels = async (endpoint: string, apiKey?: string): Promise<Open
 const getDefaultSettings = (): AppSettings => ({
   provider: 'gemini',
   geminiApiKey: import.meta.env.VITE_GEMINI_API_KEY || '',
+  geminiModel: 'gemini-2.5-flash-lite',
+  geminiMediaResolution: 'low',
   customConfig: {
     endpoint: import.meta.env.VITE_OPENROUTER_ENDPOINT || 'https://openrouter.ai/api/v1',
     model: import.meta.env.VITE_OPENROUTER_MODEL || 'qwen/qwen3-vl-8b-instruct',
@@ -82,6 +84,8 @@ export interface UseAppSettingsReturn {
   updateSettings: (updates: Partial<AppSettings>) => void;
   updateProvider: (provider: AnalysisProvider) => void;
   updateGeminiApiKey: (key: string) => void;
+  updateGeminiModel: (model: GeminiModel) => void;
+  updateGeminiMediaResolution: (resolution: GeminiMediaResolution) => void;
   updateCustomConfig: (config: Partial<CustomProviderConfig>) => void;
   updateJamendoClientId: (clientId: string) => void;
   saveSettings: () => void;
@@ -101,6 +105,14 @@ export function useAppSettings(): UseAppSettingsReturn {
   // Load settings from localStorage on mount
   useEffect(() => {
     try {
+      // One-shot cleanup: remove orphan key from a pre-rename version of this code.
+      // Old key was `fpv_settings`; current key is `fpv_app_settings`. Safe to remove
+      // unconditionally — no code reads `fpv_settings` anywhere in the app.
+      if (localStorage.getItem('fpv_settings') !== null) {
+        localStorage.removeItem('fpv_settings');
+        console.log('[useAppSettings] removed orphan fpv_settings key from a previous app version');
+      }
+
       const stored = localStorage.getItem(SETTINGS_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
@@ -183,6 +195,14 @@ export function useAppSettings(): UseAppSettingsReturn {
     setSettings(prev => ({ ...prev, geminiApiKey }));
   }, []);
 
+  const updateGeminiModel = useCallback((geminiModel: GeminiModel) => {
+    setSettings(prev => ({ ...prev, geminiModel }));
+  }, []);
+
+  const updateGeminiMediaResolution = useCallback((geminiMediaResolution: GeminiMediaResolution) => {
+    setSettings(prev => ({ ...prev, geminiMediaResolution }));
+  }, []);
+
   const updateCustomConfig = useCallback((config: Partial<CustomProviderConfig>) => {
     setSettings(prev => ({
       ...prev,
@@ -209,6 +229,8 @@ export function useAppSettings(): UseAppSettingsReturn {
     updateSettings,
     updateProvider,
     updateGeminiApiKey,
+    updateGeminiModel,
+    updateGeminiMediaResolution,
     updateCustomConfig,
     updateJamendoClientId,
     saveSettings,

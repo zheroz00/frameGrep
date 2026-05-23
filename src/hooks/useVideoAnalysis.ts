@@ -2,7 +2,9 @@ import { useState, useRef, useEffect, useCallback, type ChangeEvent } from 'reac
 import { uploadVideo, analyzeVideo, UploadPhase } from '../services/geminiService';
 import { analyzeVideoLocal, LocalVLMConfig } from '../services/localVLMService';
 import { extractVideoMetadata } from '../services/mediaInfoService';
-import { AppStatus, ClipSegment, VideoQueueItem, QueueItemStatus, AnalysisProvider, VideoMetadata, PresetCategory } from '../types';
+import { shouldTranscode, transcodeVideo } from '../services/transcodeService';
+import { renderFpvMoveDictionary } from '../constants/fpvMoves';
+import { AppStatus, ClipSegment, VideoQueueItem, QueueItemStatus, AnalysisProvider, VideoMetadata, PresetCategory, GeminiModel, GeminiMediaResolution } from '../types';
 
 export type AnalysisPhase = UploadPhase | 'analyzing' | 'extracting';
 
@@ -111,7 +113,11 @@ export interface UseVideoAnalysisReturn {
     instruction: string,
     maxDuration: number,
     category: PresetCategory,
-    localConfig?: LocalVLMConfig
+    options?: {
+      localConfig?: LocalVLMConfig;
+      geminiModel?: GeminiModel;
+      geminiMediaResolution?: GeminiMediaResolution;
+    }
   ) => Promise<void>;
   handlePlayClip: (clip: ClipSegment, index: number) => void;
   setError: (error: string | null) => void;
@@ -155,6 +161,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     return () => {
       videoQueue.forEach(item => {
         if (item.url) URL.revokeObjectURL(item.url);
+        if (item.transcodedUrl) URL.revokeObjectURL(item.transcodedUrl);
       });
     };
   }, []);
@@ -201,6 +208,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     setVideoQueue(prev => {
       const item = prev.find(i => i.id === id);
       if (item?.url) URL.revokeObjectURL(item.url);
+      if (item?.transcodedUrl) URL.revokeObjectURL(item.transcodedUrl);
 
       const updated = prev.filter(i => i.id !== id);
 
@@ -218,6 +226,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
   const clearQueue = useCallback(() => {
     videoQueue.forEach(item => {
       if (item.url) URL.revokeObjectURL(item.url);
+      if (item.transcodedUrl) URL.revokeObjectURL(item.transcodedUrl);
     });
     setVideoQueue([]);
     setActiveVideoUrl(null);
@@ -240,8 +249,13 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     instruction: string,
     maxDuration: number,
     category: PresetCategory,
-    localConfig?: LocalVLMConfig
+    options: {
+      localConfig?: LocalVLMConfig;
+      geminiModel?: GeminiModel;
+      geminiMediaResolution?: GeminiMediaResolution;
+    } = {}
   ) => {
+    const { localConfig, geminiModel = 'gemini-2.5-flash-lite', geminiMediaResolution = 'low' } = options;
     const pendingItems = videoQueue.filter(item => item.status === 'pending');
 
     if (pendingItems.length === 0) {
@@ -271,7 +285,8 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
       setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
     }, 1000);
 
-    const finalInstruction = instruction + buildTemporalConstraint(maxDuration, category);
+    const dictionarySection = category === 'fpv' ? '\n\n' + renderFpvMoveDictionary() : '';
+    const finalInstruction = instruction + dictionarySection + buildTemporalConstraint(maxDuration, category);
 
     try {
       for (let i = 0; i < pendingItems.length; i++) {
@@ -300,16 +315,58 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
               }
             );
           } else {
-            // Gemini path - upload then analyze
+            // Gemini path - prepare (transcode if needed) then upload then analyze
+            let fileToUpload = item.file;
+
+            const decision = await shouldTranscode(item.file);
+            if (decision.transcode) {
+              console.log(`Transcoding ${item.file.name}: ${decision.reason}`);
+              updateQueueItem(item.id, { status: 'preparing' });
+              setUploadPhase('preparing');
+              setPhaseDetail('NVENC transcoding (GPU 1) — connecting...');
+              setProcessingProgress({ attempt: 0, maxAttempts: 100 });
+
+              fileToUpload = await transcodeVideo(item.file, (progress) => {
+                const receivedMB = progress.receivedBytes / 1_048_576;
+                setPhaseDetail(
+                  `NVENC transcoding (GPU 1) — ${receivedMB.toFixed(1)} MB received`
+                );
+                // Drive the progress bar from received/input bytes, capped at 95%
+                // (output is usually smaller than input, so we never hit 100% here).
+                if (progress.inputBytes > 0) {
+                  const pct = Math.min(
+                    95,
+                    Math.round((progress.receivedBytes / progress.inputBytes) * 100)
+                  );
+                  setProcessingProgress({ attempt: pct, maxAttempts: 100 });
+                }
+              });
+
+              // Surface the transcoded file in the queue UI so the user can
+              // inspect what's actually being sent to Gemini (quality, duration, frame rate).
+              const transcodedUrl = URL.createObjectURL(fileToUpload);
+              updateQueueItem(item.id, { transcodedUrl, transcodedSize: fileToUpload.size });
+            }
+
+            const uploadSizeMB = (fileToUpload.size / 1_048_576).toFixed(1);
             updateQueueItem(item.id, { status: 'uploading' });
             setUploadPhase('uploading');
-            setPhaseDetail('Uploading to Gemini...');
+            setPhaseDetail(`Uploading ${uploadSizeMB} MB to Gemini Files API...`);
             setProcessingProgress({ attempt: 0, maxAttempts: 150 });
 
-            const fileUri = await uploadVideo(apiKey, item.file, (phase, detail) => {
+            const fileUri = await uploadVideo(apiKey, fileToUpload, (phase, detail) => {
               setUploadPhase(phase);
-              setPhaseDetail(phase === 'uploading' ? 'Uploading...' : 'Processing on Gemini servers...');
               updateQueueItem(item.id, { status: phase as QueueItemStatus });
+              if (phase === 'uploading') {
+                setPhaseDetail(`Uploading ${uploadSizeMB} MB to Gemini Files API...`);
+              } else if (phase === 'processing') {
+                const attempt = detail?.attempt ?? 0;
+                const maxAttempts = detail?.maxAttempts ?? 150;
+                const elapsedSec = attempt * 2;
+                setPhaseDetail(
+                  `Gemini processing video on Google servers (${attempt}/${maxAttempts} polls, ${elapsedSec}s elapsed)...`
+                );
+              }
               if (detail?.attempt !== undefined) {
                 setProcessingProgress({ attempt: detail.attempt, maxAttempts: detail.maxAttempts || 150 });
               }
@@ -319,7 +376,9 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
             setUploadPhase('analyzing');
             setPhaseDetail('Analyzing with Gemini...');
 
-            result = await analyzeVideo(apiKey, fileUri, item.file.type, finalInstruction);
+            // Use the transcoded file's mime type if we transcoded (mp4); otherwise the original.
+            const uploadedMime = fileToUpload.type || item.file.type;
+            result = await analyzeVideo(apiKey, fileUri, uploadedMime, finalInstruction, geminiModel, geminiMediaResolution);
           }
 
           // Add sourceFile to each clip and filter invalid ones
@@ -372,6 +431,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     // Clear existing queue
     videoQueue.forEach(item => {
       if (item.url) URL.revokeObjectURL(item.url);
+      if (item.transcodedUrl) URL.revokeObjectURL(item.transcodedUrl);
     });
 
     // Create placeholder queue items for each video (no actual files)

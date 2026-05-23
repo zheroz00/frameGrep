@@ -24,3 +24,18 @@ dist-ssr
 *.sw?
 .env
 .env.local
+
+# Video footage — never commit raw test clips; they're huge and personal
+*.mp4
+*.MP4
+*.mov
+*.MOV
+*.mkv
+*.MKV
+*.avi
+*.AVI
+*.webm
+*.WEBM
+
+# Browser automation cache (Playwright MCP screenshots, traces, etc.)
+.playwright-mcp/
