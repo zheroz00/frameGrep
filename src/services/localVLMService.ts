@@ -1,10 +1,12 @@
-import { ClipSegment } from '../types';
+import { ClipSegment, VideoMetadata } from '../types';
+import { extractVideoMetadata } from './mediaInfoService';
 
 export interface LocalVLMConfig {
   endpoint: string;
   model: string;
   apiKey?: string;
   maxFrames?: number; // Override max frames for local models with limited context
+  useNativeVideo?: boolean;
 }
 
 export type FrameExtractionProgress = (current: number, total: number) => void;
@@ -79,6 +81,25 @@ export const getVideoDuration = (videoFile: File): Promise<number> => {
 
     video.src = URL.createObjectURL(videoFile);
   });
+};
+
+const fileToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      const base64 = result.includes(',') ? result.split(',')[1] : result;
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error('Failed to read video file'));
+    reader.readAsDataURL(file);
+  });
+};
+
+const blobUrlToFile = async (blobUrl: string, filename: string): Promise<File> => {
+  const response = await fetch(blobUrl);
+  const blob = await response.blob();
+  return new File([blob], filename, { type: blob.type || 'video/mp4' });
 };
 
 /**
@@ -414,6 +435,234 @@ export const analyzeVideoLocal = async (
 
   // Prefer content; fall back to reasoning_content for thinking models that
   // ignore /no_think and emit the JSON inside their reasoning channel instead.
+  const sources: Array<[string, string]> = [
+    ['content', contentText],
+    ['reasoning_content', reasoningText]
+  ];
+
+  let lastError: unknown = null;
+  for (const [name, text] of sources) {
+    if (!text.trim()) continue;
+    try {
+      return parseModelResponse(text);
+    } catch (e) {
+      lastError = e;
+      console.warn(`Failed to parse model response from ${name}:`, e);
+    }
+  }
+
+  if (!contentText.trim() && !reasoningText.trim()) {
+    throw new Error(`No content in streamed response (finish_reason=${finishReason ?? 'unknown'})`);
+  }
+  throw new Error(`Failed to parse streamed model response: ${lastError}`);
+};
+
+const buildNativeVideoPrompt = (
+  systemInstruction: string,
+  durationSeconds: number
+): string => {
+  const durationStr = `${Math.floor(durationSeconds / 60)}:${String(Math.floor(durationSeconds % 60)).padStart(2, '0')}`;
+  return `${systemInstruction}
+
+/no_think
+
+VIDEO CONTEXT:
+You are analyzing a full video (duration: ${durationStr}) with native temporal understanding.
+You can see motion, transitions, and timing directly — not just still frames.
+
+IMPORTANT: Identify clips using real timestamps from the video.
+- Provide times in MM:SS format
+- You have access to the full temporal flow, so be precise about when actions start and end.
+
+Respond with a JSON array of clips. Each clip must have:
+- start_time: string (MM:SS format)
+- end_time: string (MM:SS format)
+- description: string (brief description of the action)
+- excitement_score: number (1-10)
+- mood: string (one of: intense, smooth, dramatic, peaceful, playful, technical)
+- lighting: string (one of: golden_hour, midday, overcast, shade, indoor, mixed, low_light)
+- dominant_colors: string[] (1-3 dominant colors like "orange", "blue", "green")
+
+Optional fields (include when using Smart Edit Roadmap or similar presets):
+- section_type: string (one of: highlight, flow, transition, dead_time)
+- energy_level: string (one of: high, medium, low)
+- recommendation: string (one of: keep, trim, review)
+- transition_note: string (notes for transition sections, e.g., "Good cut point")
+
+Return ONLY valid JSON array, no markdown or explanation.`;
+};
+
+/**
+ * Analyze video using native video_url content type (vLLM + Qwen-VL).
+ * Sends the full video instead of extracting frames.
+ */
+const NATIVE_VIDEO_MAX_HEIGHT = 480;
+
+export async function downscaleForNativeVideo(
+  file: File,
+  onProgress?: (phase: string, detail?: string) => void,
+): Promise<File> {
+  let meta: VideoMetadata | null = null;
+  try {
+    meta = await extractVideoMetadata(file);
+  } catch {
+    // If metadata extraction fails, attempt transcode anyway
+  }
+
+  if (meta && meta.height <= NATIVE_VIDEO_MAX_HEIGHT) {
+    return file;
+  }
+
+  const resLabel = meta ? `${meta.width}x${meta.height}` : 'unknown resolution';
+  onProgress?.('preparing', `Downscaling ${resLabel} → 480p for vLLM token budget...`);
+
+  const params = new URLSearchParams({
+    audio: 'false',
+    maxHeight: String(NATIVE_VIDEO_MAX_HEIGHT),
+  });
+
+  const response = await fetch(`/api/transcode?${params}`, {
+    method: 'POST',
+    headers: { 'Content-Type': file.type || 'video/mp4' },
+    body: file,
+    // @ts-expect-error — duplex is valid but missing from current TS lib types
+    duplex: 'half',
+  });
+
+  if (!response.ok) {
+    throw new Error(`Downscale failed: HTTP ${response.status}`);
+  }
+
+  const blob = await response.blob();
+  const sizeMB = (sz: number) => (sz / (1024 * 1024)).toFixed(0);
+  console.log(`Native video downscale: ${sizeMB(file.size)}MB → ${sizeMB(blob.size)}MB`);
+
+  return new File([blob], file.name, { type: 'video/mp4', lastModified: Date.now() });
+}
+
+export const analyzeVideoNative = async (
+  config: LocalVLMConfig,
+  videoFile: File,
+  systemInstruction: string,
+  onProgress?: (phase: string, detail?: string) => void,
+  transcodedUrl?: string,
+): Promise<ClipSegment[]> => {
+  let fileToSend = videoFile;
+  if (transcodedUrl) {
+    onProgress?.('preparing', 'Using transcoded video for native analysis...');
+    fileToSend = await blobUrlToFile(transcodedUrl, videoFile.name);
+  }
+
+  fileToSend = await downscaleForNativeVideo(fileToSend, onProgress);
+
+  onProgress?.('preparing', 'Reading video metadata...');
+  const duration = await getVideoDuration(fileToSend);
+
+  const fileSizeMB = fileToSend.size / (1024 * 1024);
+  onProgress?.('preparing', `Encoding ${fileSizeMB.toFixed(0)}MB video to base64...`);
+  const base64Video = await fileToBase64(fileToSend);
+
+  onProgress?.('analyzing', `Sending native video (${fileSizeMB.toFixed(0)}MB) to ${config.model}...`);
+
+  const mimeType = fileToSend.type || 'video/mp4';
+
+  const content: Array<Record<string, unknown>> = [
+    {
+      type: 'text',
+      text: buildNativeVideoPrompt(systemInstruction, duration)
+    },
+    {
+      type: 'video_url',
+      video_url: {
+        url: `data:${mimeType};base64,${base64Video}`
+      }
+    }
+  ];
+
+  const endpoint = config.endpoint.replace(/\/$/, '');
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json'
+  };
+
+  if (config.apiKey) {
+    headers['Authorization'] = `Bearer ${config.apiKey}`;
+  }
+
+  const requestBody: Record<string, unknown> = {
+    model: config.model,
+    messages: [
+      {
+        role: 'user',
+        content
+      }
+    ],
+    temperature: 0.2,
+    max_tokens: 16384,
+    stream: true
+  };
+
+  const response = await fetch(`${endpoint}/chat/completions`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(requestBody)
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`API request failed: ${response.status} - ${errorText}`);
+  }
+
+  if (!response.body) {
+    throw new Error('Streaming response has no body');
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let contentText = '';
+  let reasoningText = '';
+  let finishReason: string | null = null;
+  let lastTick = Date.now();
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+
+    let idx: number;
+    while ((idx = buffer.indexOf('\n\n')) !== -1) {
+      const frame = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+
+      for (const line of frame.split('\n')) {
+        if (!line.startsWith('data:')) continue;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === '[DONE]') continue;
+
+        try {
+          const chunk = JSON.parse(payload);
+          const delta = chunk.choices?.[0]?.delta || {};
+          if (typeof delta.content === 'string') contentText += delta.content;
+          if (typeof delta.reasoning_content === 'string') reasoningText += delta.reasoning_content;
+          const fr = chunk.choices?.[0]?.finish_reason;
+          if (fr) finishReason = fr;
+        } catch {
+          // Tolerate malformed chunks
+        }
+      }
+    }
+
+    const now = Date.now();
+    if (now - lastTick > 5000) {
+      const chars = contentText.length + reasoningText.length;
+      onProgress?.('analyzing', `Streaming response... ${chars} chars received`);
+      lastTick = now;
+    }
+  }
+
+  onProgress?.('parsing', 'Parsing results...');
+
   const sources: Array<[string, string]> = [
     ['content', contentText],
     ['reasoning_content', reasoningText]

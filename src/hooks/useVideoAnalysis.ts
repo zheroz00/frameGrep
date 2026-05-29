@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, type ChangeEvent } from 'react';
 import { uploadVideo, analyzeVideo, UploadPhase } from '../services/geminiService';
-import { analyzeVideoLocal, LocalVLMConfig } from '../services/localVLMService';
+import { analyzeVideoLocal, analyzeVideoNative, LocalVLMConfig } from '../services/localVLMService';
+import { analyzeVideoMarlin } from '../services/marlinService';
 import { extractVideoMetadata } from '../services/mediaInfoService';
 import { shouldTranscode, transcodeVideo } from '../services/transcodeService';
 import { renderFpvMoveDictionary } from '../constants/fpvMoves';
@@ -117,6 +118,7 @@ export interface UseVideoAnalysisReturn {
       localConfig?: LocalVLMConfig;
       geminiModel?: GeminiModel;
       geminiMediaResolution?: GeminiMediaResolution;
+      marlinEndpoint?: string;
     }
   ) => Promise<void>;
   handlePlayClip: (clip: ClipSegment, index: number) => void;
@@ -253,9 +255,10 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
       localConfig?: LocalVLMConfig;
       geminiModel?: GeminiModel;
       geminiMediaResolution?: GeminiMediaResolution;
+      marlinEndpoint?: string;
     } = {}
   ) => {
-    const { localConfig, geminiModel = 'gemini-2.5-flash-lite', geminiMediaResolution = 'low' } = options;
+    const { localConfig, geminiModel = 'gemini-2.5-flash-lite', geminiMediaResolution = 'low', marlinEndpoint = '/api/marlin' } = options;
     const pendingItems = videoQueue.filter(item => item.status === 'pending');
 
     if (pendingItems.length === 0) {
@@ -296,24 +299,64 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
         try {
           let result: ClipSegment[];
 
-          if (provider === 'custom' && localConfig) {
-            // Custom provider path - frame extraction + OpenRouter/Ollama API call
-            updateQueueItem(item.id, { status: 'processing' });
-            setUploadPhase('extracting');
-            setPhaseDetail('Preparing video frames...');
+          if (provider === 'marlin') {
+            // Local Marlin-2B server. Caption-mode only — `finalInstruction` (preset +
+            // FPV dictionary + temporal constraint) is intentionally NOT sent: Marlin
+            // only honors its canonical prompt, and overriding it degrades output.
+            updateQueueItem(item.id, { status: 'analyzing' });
+            setUploadPhase('analyzing');
+            setPhaseDetail('Analyzing with Marlin (local)...');
 
-            result = await analyzeVideoLocal(
-              localConfig,
+            result = await analyzeVideoMarlin(
+              { endpoint: marlinEndpoint },
               item.file,
-              finalInstruction,
               (phase, detail) => {
                 setUploadPhase(phase as AnalysisPhase);
                 setPhaseDetail(detail || null);
                 if (phase === 'analyzing') {
                   updateQueueItem(item.id, { status: 'analyzing' });
                 }
-              }
+              },
             );
+          } else if (provider === 'custom' && localConfig) {
+            if (localConfig.useNativeVideo) {
+              // Native video path — send full video to vLLM
+              updateQueueItem(item.id, { status: 'preparing' });
+              setUploadPhase('preparing');
+              setPhaseDetail('Preparing native video...');
+
+              result = await analyzeVideoNative(
+                localConfig,
+                item.file,
+                finalInstruction,
+                (phase, detail) => {
+                  setUploadPhase(phase as AnalysisPhase);
+                  setPhaseDetail(detail || null);
+                  if (phase === 'analyzing') {
+                    updateQueueItem(item.id, { status: 'analyzing' });
+                  }
+                },
+                item.transcodedUrl,
+              );
+            } else {
+              // Frame extraction path — OpenRouter/Ollama/vLLM API call
+              updateQueueItem(item.id, { status: 'processing' });
+              setUploadPhase('extracting');
+              setPhaseDetail('Preparing video frames...');
+
+              result = await analyzeVideoLocal(
+                localConfig,
+                item.file,
+                finalInstruction,
+                (phase, detail) => {
+                  setUploadPhase(phase as AnalysisPhase);
+                  setPhaseDetail(detail || null);
+                  if (phase === 'analyzing') {
+                    updateQueueItem(item.id, { status: 'analyzing' });
+                  }
+                }
+              );
+            }
           } else {
             // Gemini path - prepare (transcode if needed) then upload then analyze
             let fileToUpload = item.file;

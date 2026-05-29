@@ -162,6 +162,7 @@ export default function App() {
         localConfig: provider === 'custom' ? settings.customConfig : undefined,
         geminiModel: settings.geminiModel,
         geminiMediaResolution: settings.geminiMediaResolution,
+        marlinEndpoint: settings.marlinEndpoint,
       }
     );
   };
@@ -295,12 +296,27 @@ export default function App() {
               >
                 <Server size={12} /> Custom
               </button>
+              <button
+                onClick={() => updateProvider('marlin')}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                  provider === 'marlin'
+                    ? 'bg-sky-500 text-white'
+                    : 'text-zinc-500 hover:text-white'
+                }`}
+              >
+                <Cpu size={12} /> Marlin
+              </button>
             </div>
 
             {/* Provider indicator / Quick info */}
             {provider === 'custom' && (
               <span className="text-xs text-purple-400 max-w-[120px] truncate" title={settings.customConfig.model}>
                 {customModelDisplay}
+              </span>
+            )}
+            {provider === 'marlin' && (
+              <span className="text-xs text-sky-400 max-w-[140px] truncate" title="Local Marlin-2B (caption mode)">
+                Marlin-2B · local
               </span>
             )}
 

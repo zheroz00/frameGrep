@@ -82,12 +82,14 @@ export interface PromptPreset {
 }
 
 // Provider configuration for AI backends
-export type AnalysisProvider = 'gemini' | 'custom';
+// 'marlin' = local NemoStation/Marlin-2B server (caption-mode clip-ID, fully offline)
+export type AnalysisProvider = 'gemini' | 'custom' | 'marlin';
 
 export interface CustomProviderConfig {
   endpoint: string;      // e.g., "https://openrouter.ai/api/v1" or "http://localhost:11434/v1"
   model: string;         // e.g., "qwen/qwen3-vl-8b-instruct"
   apiKey?: string;       // Required for OpenRouter, optional for Ollama
+  useNativeVideo?: boolean; // When true, send video_url instead of frame extraction (vLLM only)
 }
 
 // Alias for backward compatibility
@@ -121,6 +123,7 @@ export interface AppSettings {
   geminiModel: GeminiModel;                       // Selected Gemini model for analysis
   geminiMediaResolution: GeminiMediaResolution;   // Token/cost vs detail trade-off
   customConfig: CustomProviderConfig;
+  marlinEndpoint?: string;                        // Local Marlin-2B server (default '/api/marlin', proxied to :8003)
   jamendoClientId?: string;                       // For music suggestions feature
 }
 

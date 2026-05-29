@@ -1,5 +1,5 @@
 import { useState, useRef, type ChangeEvent } from 'react';
-import { X, Save, Settings, Cloud, Server, RefreshCw, ChevronDown, Download, Upload, Database, Music, CheckCircle2 } from 'lucide-react';
+import { X, Save, Settings, Cloud, Server, Cpu, RefreshCw, ChevronDown, Download, Upload, Database, Music, CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
 import { UseAppSettingsReturn } from '../../hooks/useAppSettings';
 import ModelSelectorModal from './ModelSelectorModal';
 import { exportAllAppData, importAllAppData } from '../../utils/exportUtils';
@@ -35,6 +35,9 @@ export default function SettingsModal({ isOpen, onClose, appSettings }: Settings
     isSaving,
     openrouterModels,
     loadingModels,
+    currentlyLoadedVLM,
+    swapInProgress,
+    swapError,
     updateProvider,
     updateGeminiApiKey,
     updateGeminiModel,
@@ -42,13 +45,32 @@ export default function SettingsModal({ isOpen, onClose, appSettings }: Settings
     updateCustomConfig,
     updateJamendoClientId,
     saveSettings,
-    refreshModels
+    refreshModels,
+    swapLocalVLM,
   } = appSettings;
 
   const selectedGeminiModelDescription =
     GEMINI_MODEL_OPTIONS.find(o => o.id === settings.geminiModel)?.description || '';
 
-  const handleSave = () => {
+  // A pending swap exists when the user picked a local vLLM model that the
+  // server isn't currently serving. We DON'T trigger the swap on selection —
+  // it's deferred to the Save Settings click so the user can flip between
+  // options without each tap kicking off an 80-second load.
+  const pendingVLMSwap = currentlyLoadedVLM !== null
+    && settings.provider === 'custom'
+    && settings.customConfig.model !== currentlyLoadedVLM
+    && openrouterModels.some(m => m.id === settings.customConfig.model);
+
+  const handleSave = async () => {
+    if (pendingVLMSwap) {
+      try {
+        await swapLocalVLM(settings.customConfig.model);
+      } catch {
+        // Surface the error inline (swapError state already set). Keep the
+        // modal open so the user can read it and retry.
+        return;
+      }
+    }
     saveSettings();
     onClose();
   };
@@ -111,7 +133,7 @@ export default function SettingsModal({ isOpen, onClose, appSettings }: Settings
               <label className="block text-sm font-medium text-zinc-300 mb-2">
                 AI Provider
               </label>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <button
                   onClick={() => updateProvider('gemini')}
                   className={`flex items-center gap-3 p-4 rounded-lg border-2 transition-all ${
@@ -145,9 +167,26 @@ export default function SettingsModal({ isOpen, onClose, appSettings }: Settings
                     <div className="text-xs text-zinc-500">OpenRouter, Ollama, vLLM</div>
                   </div>
                 </button>
+
+                <button
+                  onClick={() => updateProvider('marlin')}
+                  className={`flex items-center gap-3 p-4 rounded-lg border-2 transition-all ${
+                    settings.provider === 'marlin'
+                      ? 'border-sky-500 bg-sky-500/10'
+                      : 'border-zinc-800 bg-zinc-950 hover:border-zinc-700'
+                  }`}
+                >
+                  <Cpu className={`w-5 h-5 ${settings.provider === 'marlin' ? 'text-sky-400' : 'text-zinc-500'}`} />
+                  <div className="text-left">
+                    <div className={`font-medium ${settings.provider === 'marlin' ? 'text-white' : 'text-zinc-300'}`}>
+                      Marlin (local)
+                    </div>
+                    <div className="text-xs text-zinc-500">Offline clip-ID, no prompt</div>
+                  </div>
+                </button>
               </div>
               <p className="text-xs text-zinc-500 mt-2">
-                Gemini uploads full video. Custom providers use frame extraction.
+                Gemini uploads full video. Custom uses frame extraction or native video. Marlin runs a local 2B model that auto-captions clips with timestamps (server: scripts/marlin-server.sh).
               </p>
             </div>
 
@@ -254,7 +293,7 @@ export default function SettingsModal({ isOpen, onClose, appSettings }: Settings
                   />
                   <p className="text-xs text-zinc-500 mt-1">
                     OpenRouter: <code className="text-zinc-400">https://openrouter.ai/api/v1</code> |
-                    vLLM: <code className="text-zinc-400">http://localhost:8081/v1</code> |
+                    vLLM: <code className="text-zinc-400">http://localhost:8002/v1</code> |
                     Ollama: <code className="text-zinc-400">http://localhost:11434/v1</code>
                   </p>
                 </div>
@@ -305,7 +344,7 @@ export default function SettingsModal({ isOpen, onClose, appSettings }: Settings
                         type="text"
                         value={settings.customConfig.model}
                         onChange={(e) => updateCustomConfig({ model: e.target.value })}
-                        placeholder="e.g., Qwen/Qwen2.5-VL-7B-Instruct-AWQ"
+                        placeholder="e.g., Qwen/Qwen3-VL-8B-Instruct-FP8"
                         className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-200 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500"
                       />
                       <p className="text-xs text-zinc-500 mt-1">
@@ -316,7 +355,7 @@ export default function SettingsModal({ isOpen, onClose, appSettings }: Settings
                     <>
                       <button
                         onClick={() => setIsModelSelectorOpen(true)}
-                        disabled={loadingModels}
+                        disabled={loadingModels || swapInProgress}
                         className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-200 hover:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-purple-500/50 text-left flex items-center justify-between disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                       >
                         <span className="truncate">{modelDisplayName}</span>
@@ -329,8 +368,69 @@ export default function SettingsModal({ isOpen, onClose, appSettings }: Settings
                             ? 'No models found. Is the server running?'
                             : 'Loading models...'}
                       </p>
+                      {currentlyLoadedVLM && (
+                        <p className="text-xs text-zinc-500 mt-1">
+                          vLLM currently serving: <code className="text-zinc-400">{currentlyLoadedVLM}</code>
+                        </p>
+                      )}
+                      {pendingVLMSwap && !swapInProgress && (
+                        <div className="mt-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2">
+                          <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                          <span>
+                            Pending swap. <strong>Save Settings</strong> will reload vLLM with the selected model (~60-90s).
+                          </span>
+                        </div>
+                      )}
+                      {swapInProgress && (
+                        <div className="mt-2 px-3 py-2 rounded-lg bg-purple-500/10 border border-purple-500/30 text-purple-200 text-xs flex items-center gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+                          <span>Swapping vLLM model — this takes ~60-90s. Don't close the modal.</span>
+                        </div>
+                      )}
+                      {swapError && !swapInProgress && (
+                        <div className="mt-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-200 text-xs flex items-start gap-2">
+                          <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                          <span>Swap failed: {swapError}</span>
+                        </div>
+                      )}
                     </>
                   )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-zinc-300 mb-2">
+                    Video Input Mode
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateCustomConfig({ useNativeVideo: false })}
+                      className={`px-3 py-2 rounded-lg border text-sm font-medium transition-colors text-left ${
+                        !settings.customConfig.useNativeVideo
+                          ? 'border-purple-500 bg-purple-500/10 text-white'
+                          : 'border-zinc-800 bg-zinc-950 text-zinc-300 hover:border-zinc-700'
+                      }`}
+                    >
+                      <div>Frame Extraction</div>
+                      <div className="text-xs text-zinc-500 mt-0.5">Extract JPEG frames (all providers)</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateCustomConfig({ useNativeVideo: true })}
+                      className={`px-3 py-2 rounded-lg border text-sm font-medium transition-colors text-left ${
+                        settings.customConfig.useNativeVideo
+                          ? 'border-purple-500 bg-purple-500/10 text-white'
+                          : 'border-zinc-800 bg-zinc-950 text-zinc-300 hover:border-zinc-700'
+                      }`}
+                    >
+                      <div>Native Video</div>
+                      <div className="text-xs text-zinc-500 mt-0.5">Send full video to vLLM (Qwen-VL)</div>
+                    </button>
+                  </div>
+                  <p className="text-xs text-zinc-500 mt-1">
+                    Native Video sends the full MP4 to models that support <code className="text-zinc-400">video_url</code> (vLLM + Qwen-VL).
+                    Frame Extraction works with all OpenAI-compatible APIs.
+                  </p>
                 </div>
               </>
             )}
@@ -416,17 +516,24 @@ export default function SettingsModal({ isOpen, onClose, appSettings }: Settings
           <div className="p-4 border-t border-zinc-800 flex justify-end gap-3">
             <button
               onClick={onClose}
-              className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg transition-colors"
+              disabled={swapInProgress}
+              className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-900 disabled:cursor-not-allowed text-zinc-200 rounded-lg transition-colors"
             >
               Cancel
             </button>
             <button
               onClick={handleSave}
-              disabled={isSaving}
+              disabled={isSaving || swapInProgress}
               className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-700 disabled:cursor-not-allowed text-zinc-950 font-medium rounded-lg transition-colors"
             >
-              <Save className="w-4 h-4" />
-              {isSaving ? 'Saving...' : 'Save Settings'}
+              {swapInProgress
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <Save className="w-4 h-4" />}
+              {swapInProgress
+                ? 'Loading model...'
+                : pendingVLMSwap
+                  ? 'Save & Swap Model'
+                  : isSaving ? 'Saving...' : 'Save Settings'}
             </button>
           </div>
         </div>

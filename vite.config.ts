@@ -2,7 +2,7 @@ import path from 'path';
 import { defineConfig, loadEnv, Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { spawn } from 'node:child_process';
-import { createWriteStream, mkdtempSync, rmSync } from 'node:fs';
+import { createWriteStream, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -165,6 +165,234 @@ function nvencTranscodeMiddleware(): Plugin {
   };
 }
 
+// Architectures we recognize as vision-capable Qwen/InternVL/MiniCPM/LLaVA models.
+// Add to this list if you start downloading other VLM families.
+const VISION_ARCHITECTURES = new Set([
+  'qwen3_vl',
+  'qwen3_vl_moe',
+  'qwen2_vl',
+  'qwen2_5_vl',
+  'internvl_chat',
+  'minicpmv',
+  'llava',
+  'llava_next',
+  'llava_next_video',
+  'llava_onevision',
+]);
+
+const HF_CACHE_DIR = process.env.HF_HUB_CACHE || '/mnt/gamesSSD/models/huggingface/hub';
+const VLLM_PORT = parseInt(process.env.VLLM_PORT || '8002', 10);
+const REPO_ROOT = __dirname;
+
+interface DiscoveredModel {
+  id: string;
+  architecture: string;
+  quantization?: string;
+  maxModelLen?: number;
+  sizeBytes: number;
+}
+
+/**
+ * Walk the HuggingFace cache dir and return every vision-capable VLM available.
+ *
+ * HF cache layout:
+ *   <cache>/models--<owner>--<name>/snapshots/<sha>/config.json
+ * Some shards may be missing on disk if a download is partial — we skip silently.
+ */
+function discoverLocalVLMs(cacheDir: string): DiscoveredModel[] {
+  let entries: string[];
+  try {
+    entries = readdirSync(cacheDir);
+  } catch {
+    return [];
+  }
+
+  const out: DiscoveredModel[] = [];
+  for (const entry of entries) {
+    if (!entry.startsWith('models--')) continue;
+    // Reconstruct HF id: "models--owner--name" → "owner/name". Note: HF replaces
+    // any '--' inside owner or name with '/', but in practice both are simple.
+    const modelId = entry.slice('models--'.length).split('--').join('/');
+    const snapshotsDir = join(cacheDir, entry, 'snapshots');
+
+    let configPath: string | null = null;
+    try {
+      const snapshots = readdirSync(snapshotsDir);
+      for (const snap of snapshots) {
+        const candidate = join(snapshotsDir, snap, 'config.json');
+        try {
+          statSync(candidate);
+          configPath = candidate;
+          break;
+        } catch { /* try next */ }
+      }
+    } catch { continue; }
+
+    if (!configPath) continue;
+
+    let cfg: Record<string, unknown>;
+    try {
+      cfg = JSON.parse(readFileSync(configPath, 'utf-8'));
+    } catch { continue; }
+
+    const arches = Array.isArray(cfg.architectures) ? cfg.architectures as string[] : [];
+    const modelType = typeof cfg.model_type === 'string' ? cfg.model_type : '';
+    const archMatch = arches.find(a => VISION_ARCHITECTURES.has(a.toLowerCase()))
+      || (VISION_ARCHITECTURES.has(modelType.toLowerCase()) ? modelType : null);
+    if (!archMatch) continue;
+
+    const qcfg = cfg.quantization_config as Record<string, unknown> | undefined;
+    const quantization = qcfg ? (qcfg.quant_method as string | undefined) || 'unknown' : undefined;
+    const maxModelLen = typeof cfg.max_position_embeddings === 'number'
+      ? cfg.max_position_embeddings : undefined;
+
+    let sizeBytes = 0;
+    try {
+      const blobs = readdirSync(join(cacheDir, entry, 'blobs'));
+      for (const b of blobs) {
+        try { sizeBytes += statSync(join(cacheDir, entry, 'blobs', b)).size; } catch { /* skip */ }
+      }
+    } catch { /* skip sizing */ }
+
+    out.push({ id: modelId, architecture: archMatch, quantization, maxModelLen, sizeBytes });
+  }
+
+  return out.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/**
+ * Ask vLLM what's currently loaded. Returns null if the server is down or
+ * doesn't respond in time.
+ */
+async function queryCurrentlyLoaded(): Promise<{ id: string; maxModelLen: number } | null> {
+  try {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 1500);
+    const r = await fetch(`http://localhost:${VLLM_PORT}/v1/models`, { signal: controller.signal });
+    clearTimeout(t);
+    if (!r.ok) return null;
+    const j = await r.json() as { data?: Array<{ id?: string; max_model_len?: number }> };
+    const m = j.data?.[0];
+    if (!m?.id) return null;
+    return { id: m.id, maxModelLen: m.max_model_len || 0 };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * GET /api/local-vlm/models — list all VLMs in the local HF cache + which is loaded.
+ * POST /api/local-vlm/swap        — body {model, maxModelLen?} → kill+restart vLLM.
+ * GET /api/local-vlm/swap-status  — quick check whether the server is responding.
+ */
+function vllmModelManagerMiddleware(): Plugin {
+  return {
+    name: 'fpv-vllm-model-manager',
+    configureServer(server) {
+      server.middlewares.use('/api/local-vlm/models', async (req, res, next) => {
+        if (req.method !== 'GET') return next();
+        const models = discoverLocalVLMs(HF_CACHE_DIR);
+        const current = await queryCurrentlyLoaded();
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({
+          cacheDir: HF_CACHE_DIR,
+          models,
+          currentlyLoaded: current?.id || null,
+          currentMaxModelLen: current?.maxModelLen || null,
+        }));
+      });
+
+      server.middlewares.use('/api/local-vlm/swap-status', async (req, res, next) => {
+        if (req.method !== 'GET') return next();
+        const current = await queryCurrentlyLoaded();
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({
+          ready: !!current,
+          currentlyLoaded: current?.id || null,
+        }));
+      });
+
+      server.middlewares.use('/api/local-vlm/swap', async (req, res, next) => {
+        if (req.method !== 'POST') return next();
+
+        let body = '';
+        for await (const chunk of req) body += chunk;
+        let parsed: { model?: string; maxModelLen?: number };
+        try {
+          parsed = JSON.parse(body || '{}');
+        } catch {
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'invalid-json' }));
+          return;
+        }
+
+        const requested = parsed.model;
+        if (!requested || typeof requested !== 'string') {
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'missing-model' }));
+          return;
+        }
+
+        // Allowlist check — only swap to models we discovered locally. Prevents
+        // arbitrary HF IDs (which would trigger a download) and shell injection.
+        const available = discoverLocalVLMs(HF_CACHE_DIR);
+        if (!available.find(m => m.id === requested)) {
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'model-not-cached', requested, available: available.map(m => m.id) }));
+          return;
+        }
+
+        const maxLen = typeof parsed.maxModelLen === 'number' && parsed.maxModelLen >= 1024
+          ? Math.floor(parsed.maxModelLen) : undefined;
+
+        const swapScript = join(REPO_ROOT, 'scripts/vllm-swap.sh');
+        const args = maxLen ? [requested, String(maxLen)] : [requested];
+        console.log(`[vllm-swap] dispatching ${swapScript} ${args.join(' ')}`);
+
+        const proc = spawn('bash', [swapScript, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+        let stdout = '';
+        let stderr = '';
+        proc.stdout.on('data', c => { stdout += c.toString(); });
+        proc.stderr.on('data', c => { stderr += c.toString(); });
+
+        proc.on('exit', code => {
+          if (code === 0) {
+            res.statusCode = 202;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({
+              dispatched: true,
+              model: requested,
+              stdout: stdout.slice(-2000),
+              note: 'Poll /api/local-vlm/swap-status to detect readiness (~60-90s).',
+            }));
+          } else {
+            console.error(`[vllm-swap] script failed code=${code}\nstderr:\n${stderr}`);
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({
+              error: 'swap-script-failed', code,
+              stderr: stderr.slice(-2000),
+              stdout: stdout.slice(-2000),
+            }));
+          }
+        });
+
+        proc.on('error', err => {
+          console.error('[vllm-swap] spawn error:', err.message);
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'spawn-failed', message: err.message }));
+        });
+      });
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   return {
@@ -186,9 +414,26 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api\/llama/, ''),
         },
+        // Proxy local vLLM (HTTP) for native video analysis.
+        // Use endpoint "/api/vllm/v1" in Settings.
+        '/api/vllm': {
+          target: 'http://localhost:8002',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api\/vllm/, ''),
+        },
+        // Proxy the local Marlin-2B analysis server (scripts/marlin-server.sh on :8003).
+        // Avoids CORS + mixed-content; the 'marlin' provider posts video to /api/marlin/analyze.
+        '/api/marlin': {
+          target: 'http://localhost:8003',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api\/marlin/, ''),
+          // caption() can take ~20-45s; don't let the proxy time out mid-analysis.
+          timeout: 300000,
+          proxyTimeout: 300000,
+        },
       },
     },
-    plugins: [react(), nvencTranscodeMiddleware()],
+    plugins: [react(), nvencTranscodeMiddleware(), vllmModelManagerMiddleware()],
     define: {
       'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
