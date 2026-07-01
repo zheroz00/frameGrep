@@ -564,6 +564,7 @@ export async function downscaleForNativeVideo(
   const params = new URLSearchParams({
     audio: 'false',
     maxHeight: String(NATIVE_VIDEO_MAX_HEIGHT),
+    fps: '30', // cap frame rate — vLLM samples the video; 100fps is wasted work/tokens
   });
 
   const response = await fetch(`/api/transcode?${params}`, {

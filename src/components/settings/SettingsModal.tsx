@@ -43,6 +43,7 @@ export default function SettingsModal({ isOpen, onClose, appSettings }: Settings
     updateGeminiModel,
     updateGeminiMediaResolution,
     updateGeminiFps,
+    updateAutoDownsample,
     updateCustomConfig,
     updateJamendoClientId,
     saveSettings,
@@ -300,6 +301,33 @@ export default function SettingsModal({ isOpen, onClose, appSettings }: Settings
                     Frames per second Gemini actually looks at. Gemini defaults to 1 fps —
                     fast action (backflips, gaps) can fall between frames. Higher fps catches
                     sub-second moves but costs more tokens (pairs well with Low resolution).
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-zinc-300 mb-2">
+                    Auto-downsample for analysis
+                  </label>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={settings.autoDownsample}
+                    onClick={() => updateAutoDownsample(!settings.autoDownsample)}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-sm font-medium transition-colors text-left ${
+                      settings.autoDownsample
+                        ? 'border-amber-500 bg-amber-500/10 text-white'
+                        : 'border-zinc-800 bg-zinc-950 text-zinc-300 hover:border-zinc-700'
+                    }`}
+                  >
+                    <span>{settings.autoDownsample ? 'On — 720p / 30fps' : 'Off — upload as-is'}</span>
+                    <span className={`inline-flex h-5 w-9 items-center rounded-full transition-colors ${settings.autoDownsample ? 'bg-amber-500' : 'bg-zinc-700'}`}>
+                      <span className={`h-4 w-4 rounded-full bg-white transition-transform ${settings.autoDownsample ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                    </span>
+                  </button>
+                  <p className="text-xs text-zinc-500 mt-1">
+                    Transcodes over-target clips (e.g. 4K/100fps) to 720p/30fps before upload —
+                    faster uploads, no quality loss for clip ID. Your original file on disk is
+                    never modified. Off still enforces Gemini's 2GB/4K/100Mbps limits.
                   </p>
                 </div>
               </>

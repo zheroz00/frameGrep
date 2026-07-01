@@ -166,6 +166,7 @@ export default function App() {
         geminiModel: settings.geminiModel,
         geminiMediaResolution: settings.geminiMediaResolution,
         geminiFps: settings.geminiFps,
+        autoDownsample: settings.autoDownsample,
         marlinEndpoint: settings.marlinEndpoint,
       }
     );

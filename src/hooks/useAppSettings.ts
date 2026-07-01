@@ -109,6 +109,7 @@ const getDefaultSettings = (): AppSettings => ({
   geminiModel: 'gemini-2.5-flash-lite',
   geminiMediaResolution: 'low',
   geminiFps: 4,   // Sample 4 frames/sec to catch sub-second FPV action (backflips/gaps); cheap on 'low' resolution. Gemini's own default is 1.
+  autoDownsample: true,   // Auto-transcode 4K/high-fps clips to 720p/30fps before upload; original file on disk is never touched.
   customConfig: {
     endpoint: import.meta.env.VITE_OPENROUTER_ENDPOINT || 'https://openrouter.ai/api/v1',
     model: import.meta.env.VITE_OPENROUTER_MODEL || 'qwen/qwen3-vl-8b-instruct',
@@ -142,6 +143,7 @@ export interface UseAppSettingsReturn {
   updateGeminiModel: (model: GeminiModel) => void;
   updateGeminiMediaResolution: (resolution: GeminiMediaResolution) => void;
   updateGeminiFps: (fps: number) => void;
+  updateAutoDownsample: (enabled: boolean) => void;
   updateCustomConfig: (config: Partial<CustomProviderConfig>) => void;
   updateJamendoClientId: (clientId: string) => void;
   saveSettings: () => void;
@@ -351,6 +353,10 @@ export function useAppSettings(): UseAppSettingsReturn {
     setSettings(prev => ({ ...prev, geminiFps }));
   }, []);
 
+  const updateAutoDownsample = useCallback((autoDownsample: boolean) => {
+    setSettings(prev => ({ ...prev, autoDownsample }));
+  }, []);
+
   const updateCustomConfig = useCallback((config: Partial<CustomProviderConfig>) => {
     setSettings(prev => ({
       ...prev,
@@ -383,6 +389,7 @@ export function useAppSettings(): UseAppSettingsReturn {
     updateGeminiModel,
     updateGeminiMediaResolution,
     updateGeminiFps,
+    updateAutoDownsample,
     updateCustomConfig,
     updateJamendoClientId,
     saveSettings,

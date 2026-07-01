@@ -125,6 +125,7 @@ export interface UseVideoAnalysisReturn {
       geminiModel?: GeminiModel;
       geminiMediaResolution?: GeminiMediaResolution;
       geminiFps?: number;
+      autoDownsample?: boolean;
       marlinEndpoint?: string;
     }
   ) => Promise<void>;
@@ -287,10 +288,11 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
       geminiModel?: GeminiModel;
       geminiMediaResolution?: GeminiMediaResolution;
       geminiFps?: number;
+      autoDownsample?: boolean;
       marlinEndpoint?: string;
     } = {}
   ) => {
-    const { localConfig, geminiModel = 'gemini-2.5-flash-lite', geminiMediaResolution = 'low', geminiFps = 1, marlinEndpoint = '/api/marlin' } = options;
+    const { localConfig, geminiModel = 'gemini-2.5-flash-lite', geminiMediaResolution = 'low', geminiFps = 1, autoDownsample = true, marlinEndpoint = '/api/marlin' } = options;
     const pendingItems = videoQueue.filter(item => item.status === 'pending');
 
     if (pendingItems.length === 0) {
@@ -393,7 +395,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
             // Gemini path - prepare (transcode if needed) then upload then analyze
             let fileToUpload = item.file;
 
-            const decision = await shouldTranscode(item.file);
+            const decision = await shouldTranscode(item.file, autoDownsample);
             if (decision.transcode) {
               console.log(`Transcoding ${item.file.name}: ${decision.reason}`);
               updateQueueItem(item.id, { status: 'preparing' });

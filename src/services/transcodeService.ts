@@ -36,16 +36,22 @@ const MAX_WIDTH = 3840; // 4K — Gemini downsamples internally
 const MAX_HEIGHT = 2160;
 const MAX_BITRATE = 100_000_000; // 100 Mbps — covers 4K drone footage
 const TARGET_HEIGHT = 720;       // Server-side NVENC output height ceiling
+const TARGET_FPS = 30;           // Analysis-optimal frame-rate cap (models sample ~1-4 fps)
 
 // --- Public API ---
 
 /**
  * Determines whether a file should be transcoded before upload.
- * Returns transcode=true only if the file exceeds Gemini's size, resolution,
- * or bitrate limits — Gemini handles in-spec files directly without transcoding.
+ *
+ * Hard limits (>2GB / >4K / >100Mbps) ALWAYS force a transcode — Gemini rejects or
+ * chokes otherwise. When `autoDownsample` is on, we additionally normalize any clip
+ * that's over the analysis target (>720p or >30fps) so 4K/100fps sources don't upload
+ * at full size for no analysis benefit. Only an in-memory copy is transcoded; the
+ * user's original file on disk is never touched.
  */
 export async function shouldTranscode(
-  file: File
+  file: File,
+  autoDownsample = false
 ): Promise<TranscodeDecision> {
   // Quick size check first (no metadata extraction needed)
   if (file.size > SIZE_THRESHOLD) {
@@ -64,6 +70,17 @@ export async function shouldTranscode(
       const bitrate = (file.size * 8) / meta.duration;
       if (bitrate > MAX_BITRATE) {
         return { transcode: true, reason: `Bitrate ${(bitrate / 1_000_000).toFixed(1)}Mbps exceeds 100Mbps threshold` };
+      }
+    }
+
+    // Analysis normalization: downsize over-target clips to save upload without
+    // changing what the model can actually resolve.
+    if (autoDownsample) {
+      if (meta.height > TARGET_HEIGHT) {
+        return { transcode: true, reason: `Downsampling ${meta.height}p → ${TARGET_HEIGHT}p for analysis` };
+      }
+      if (meta.fps > TARGET_FPS) {
+        return { transcode: true, reason: `Capping ${Math.round(meta.fps)}fps → ${TARGET_FPS}fps for analysis` };
       }
     }
   } catch (e) {
@@ -109,6 +126,7 @@ async function transcodeViaServer(
   const params = new URLSearchParams({
     audio: 'true',
     maxHeight: String(TARGET_HEIGHT),
+    fps: String(TARGET_FPS),
   });
 
   onProgress?.({ phase: 'connecting', receivedBytes: 0, inputBytes: file.size });

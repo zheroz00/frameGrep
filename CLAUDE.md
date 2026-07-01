@@ -70,7 +70,7 @@ If not set, users can enter API keys in the Settings UI. Frame extraction uses a
 - `utils/exportUtils.ts` - EDL/FFmpeg/FCPXML generation with multi-source support, data import/export with format auto-detection
 - `constants/defaultPresets.ts` - FPV + Generic preset definitions. FPV preset instructions are role + scoring only — the canonical move vocabulary is sourced separately from `fpvMoves.ts` and appended at prompt-build time.
 - `constants/fpvMoves.ts` - Canonical FPV maneuver dictionary (22 moves: rotations, orbits, gaps, proximity, combos, vertical, hover). Exported as structured `FpvMove[]` plus `renderFpvMoveDictionary()` which formats them into prompt text. Auto-appended to every FPV preset's instruction by `useVideoAnalysis.ts`.
-- `services/transcodeService.ts` - Client-side wrapper that POSTs raw video bytes to the `/api/transcode` Vite middleware (server-side NVENC ffmpeg). Used when a file exceeds Gemini's 2GB / 4K / 100Mbps limits — downscales to 720p max for upload. Returns a new `File` plus streaming progress.
+- `services/transcodeService.ts` - Client-side wrapper that POSTs raw video bytes to the `/api/transcode` Vite middleware (server-side NVENC ffmpeg). `shouldTranscode(file, autoDownsample)` forces a transcode over Gemini's hard limits (2GB / 4K / 100Mbps) always, and — when `autoDownsample` is on (default, `AppSettings.autoDownsample`) — also normalizes any over-target clip to **720p / 30fps** (`TARGET_HEIGHT` / `TARGET_FPS`) so 4K/100fps sources don't upload full-size. Only an in-memory copy is transcoded; the user's original file on disk is never touched. Returns a new `File` plus streaming progress.
 - `components/FpvMoveDictionaryPanel.tsx` - Collapsible read-only dictionary viewer shown in Prompt Lab when the active category is `fpv`. Lets the user browse what the model is being taught.
 - `transcode/convert.sh` *(root, not in src/)* - HEVC/NVENC transcoding helper script (standalone CLI, separate from the in-app transcode service)
 
@@ -79,7 +79,7 @@ All state lives in 5 custom hooks instantiated in `App.tsx`. Hook return values 
 
 **Data Flow (Gemini - native video)**:
 1. User uploads video(s) → kept as local blob URLs
-2. User triggers analysis → `shouldTranscode()` checks file size / resolution / bitrate. If in-spec (≤2GB, ≤4K, ≤100Mbps): skip. If out-of-spec: `transcodeVideo()` POSTs bytes to `/api/transcode` (server-side NVENC, downscales to 720p) and the result blob URL is stored on the queue item as `transcodedUrl` so the user can preview what's actually being sent.
+2. User triggers analysis → `shouldTranscode(file, autoDownsample)` checks size / resolution / fps / bitrate. With auto-downsample ON (default), any clip over **720p or 30fps** (or over Gemini's 2GB/4K/100Mbps hard limits) is transcoded via `transcodeVideo()` → `/api/transcode?maxHeight=720&fps=30` (server-side NVENC); the result blob URL is stored on the queue item as `transcodedUrl` so the user can preview what's actually being sent. With auto-downsample OFF, only the hard limits trigger a transcode. In-spec clips upload as-is.
 3. (Possibly-transcoded) file → `uploadVideo()` sends to Gemini Files API with polling for PROCESSING state
 4. User triggers analysis → `analyzeVideo()` sends video URI + system instruction (preset + auto-appended FPV move dictionary + temporal constraint) to Gemini with JSON schema
 5. Response parsed into `ClipSegment[]` (start_time, end_time, description, excitement_score, mood, lighting, dominant_colors)

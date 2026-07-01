@@ -29,6 +29,10 @@ function nvencTranscodeMiddleware(): Plugin {
         const includeAudio = (url.searchParams.get('audio') ?? 'true') !== 'false';
         const maxHeightRaw = url.searchParams.get('maxHeight') ?? '720';
         const maxHeight = Math.max(240, Math.min(2160, parseInt(maxHeightRaw, 10) || 720));
+        // Optional frame-rate cap. When set, the fps filter caps high frame rates
+        // (e.g. 100 → 30); sub-target sources pass through effectively unchanged.
+        const fpsRaw = url.searchParams.get('fps');
+        const fpsCap = fpsRaw ? Math.max(1, Math.min(120, parseInt(fpsRaw, 10) || 0)) : 0;
 
         // MP4 inputs require seekable streams (moov atom is typically at file end).
         // Stream the upload to a temp file first, then run ffmpeg with that as input.
@@ -73,7 +77,10 @@ function nvencTranscodeMiddleware(): Plugin {
             '-hide_banner',
             '-loglevel', 'warning',
             '-i', tmpInput,
-            '-vf', `scale=-2:'min(${maxHeight},ih)'`,
+            // fps cap first (drop frames before scaling = less work), then scale, then
+            // format=yuv420p to force 8-bit 4:2:0: DJI D-Log/HLG footage is often 10-bit
+            // HEVC (p010), which h264_nvenc CANNOT encode ("10 bit encode not supported").
+            '-vf', `${fpsCap ? `fps=${fpsCap},` : ''}scale=-2:'min(${maxHeight},ih)',format=yuv420p`,
             '-c:v', 'h264_nvenc',
             '-preset', 'p4',
             '-cq', '28',
@@ -437,7 +444,7 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
-    plugins: [react(), nvencTranscodeMiddleware(), vllmModelManagerMiddleware()],
+    plugins: [react(), nvencTranscodeMiddleware(), vllmModelManagerMiddleware(), gpuStatsMiddleware()],
     define: {
       'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
