@@ -592,6 +592,7 @@ export const analyzeVideoNative = async (
   systemInstruction: string,
   onProgress?: (phase: string, detail?: string) => void,
   transcodedUrl?: string,
+  onProxyReady?: (proxyFile: File) => void,
 ): Promise<ClipSegment[]> => {
   let fileToSend = videoFile;
   if (transcodedUrl) {
@@ -600,6 +601,9 @@ export const analyzeVideoNative = async (
   }
 
   fileToSend = await downscaleForNativeVideo(fileToSend, onProgress);
+  // Surface the downscaled 480p proxy so the caller can reuse it for smooth
+  // preview playback (the 4K/100fps original stutters in-browser).
+  onProxyReady?.(fileToSend);
 
   onProgress?.('preparing', 'Reading video metadata...');
   const duration = await getVideoDuration(fileToSend);

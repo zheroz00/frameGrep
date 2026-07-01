@@ -25,6 +25,13 @@ export const secondsToMmss = (seconds: number): string => {
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 };
 
+/**
+ * Preview playback source: prefer the low-res transcoded proxy when present so the
+ * browser decodes/seeks smoothly (4K/100fps 10-bit HEVC originals stutter). Falls
+ * back to the original upload URL when there's no proxy (e.g. frame-extraction path).
+ */
+const previewUrlFor = (item: VideoQueueItem): string => item.transcodedUrl || item.url;
+
 /** Validates clip has valid start/end times */
 const isValidClip = (clip: ClipSegment): boolean => {
   const start = parseTime(clip.start_time);
@@ -218,7 +225,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
 
     // Set first video as active for preview if none selected
     if (!activeVideoUrl && newItems.length > 0) {
-      setActiveVideoUrl(newItems[0].url);
+      setActiveVideoUrl(previewUrlFor(newItems[0]));
       setActiveVideoName(newItems[0].file.name);
     }
 
@@ -246,10 +253,10 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
 
       const updated = prev.filter(i => i.id !== id);
 
-      // Update active video if removed
-      if (item?.url === activeVideoUrl) {
+      // Update active video if removed (activeVideoUrl may be the original OR the proxy)
+      if (item && activeVideoUrl && (item.url === activeVideoUrl || item.transcodedUrl === activeVideoUrl)) {
         const nextItem = updated[0];
-        setActiveVideoUrl(nextItem?.url || null);
+        setActiveVideoUrl(nextItem ? previewUrlFor(nextItem) : null);
         setActiveVideoName(nextItem?.file.name || null);
       }
 
@@ -371,6 +378,12 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
                   }
                 },
                 item.transcodedUrl,
+                (proxyFile) => {
+                  // Keep the 480p proxy for smooth preview playback (the 4K/100fps
+                  // original stutters when the browser software-decodes + seeks it).
+                  const proxyUrl = URL.createObjectURL(proxyFile);
+                  updateQueueItem(item.id, { transcodedUrl: proxyUrl, transcodedSize: proxyFile.size });
+                },
               );
             } else {
               // Frame extraction path — OpenRouter/Ollama/vLLM API call
@@ -495,7 +508,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     // Find the video that contains this clip
     const sourceItem = videoQueue.find(item => item.file.name === clip.sourceFile);
     if (sourceItem) {
-      setActiveVideoUrl(sourceItem.url);
+      setActiveVideoUrl(previewUrlFor(sourceItem));
       setActiveVideoName(sourceItem.file.name);
     }
 
@@ -506,7 +519,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
 
   /** Seek the player to a raw (start, end) span in seconds, on a given queue item. */
   const previewSpan = useCallback((item: VideoQueueItem, startSec: number, endSec: number) => {
-    setActiveVideoUrl(item.url);
+    setActiveVideoUrl(previewUrlFor(item));
     setActiveVideoName(item.file.name);
     setCurrentStart(startSec);
     setCurrentEnd(endSec);
