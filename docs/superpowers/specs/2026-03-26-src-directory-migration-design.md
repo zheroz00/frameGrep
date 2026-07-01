@@ -54,5 +54,5 @@ Stays at root:
 ## Verification
 
 1. `npm run build` — must succeed with no new errors
-2. `npm run dev` — dev server must start and app must load at localhost:3006
+2. `npm run dev` — dev server must start and app must load at localhost:3007
 3. Spot-check: open app in browser, verify video upload UI renders, settings modal opens

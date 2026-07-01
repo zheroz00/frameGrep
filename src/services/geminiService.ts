@@ -131,7 +131,8 @@ export const analyzeVideo = async (
   mimeType: string,
   systemInstruction: string,
   model: GeminiModel = 'gemini-3.1-flash-lite',
-  mediaResolution: GeminiMediaResolution = 'low'
+  mediaResolution: GeminiMediaResolution = 'low',
+  fps: number = 1
 ): Promise<ClipSegment[]> => {
   if (!apiKey) throw new Error("API Key is required");
 
@@ -153,6 +154,10 @@ export const analyzeVideo = async (
               mimeType: mimeType,
               fileUri: fileUri,
             },
+            // Override Gemini's default 1 FPS sampling. Higher fps lets the model
+            // see sub-second action (backflips/gaps) that fall between 1-per-second
+            // frames — at the cost of more tokens. Only sent when fps > 1.
+            ...(fps > 1 ? { videoMetadata: { fps } } : {}),
           },
           {
             text: "Analyze this video and provide a JSON list of the best moments according to your instructions.",

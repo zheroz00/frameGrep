@@ -121,7 +121,8 @@ export interface AppSettings {
   provider: AnalysisProvider;
   geminiApiKey: string;
   geminiModel: GeminiModel;                       // Selected Gemini model for analysis
-  geminiMediaResolution: GeminiMediaResolution;   // Token/cost vs detail trade-off
+  geminiMediaResolution: GeminiMediaResolution;   // Token/cost vs detail trade-off (frame sharpness)
+  geminiFps: number;                              // Frames/sec Gemini samples (default 1). Higher = catches sub-second action, more tokens
   customConfig: CustomProviderConfig;
   marlinEndpoint?: string;                        // Local Marlin-2B server (default '/api/marlin', proxied to :8003)
   jamendoClientId?: string;                       // For music suggestions feature

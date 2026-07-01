@@ -1,5 +1,5 @@
 {
-  "name": "FPV AI Editor",
-  "description": "An AI-powered FPV drone footage analyzer that uses Gemini Flash to identify high-excitement moments and generate editing scripts.",
+  "name": "frameGrep",
+  "description": "An AI-powered video analyzer that identifies high-excitement moments in FPV/drone footage, suggests music, and exports editing scripts. Works with Gemini, local/cloud VLMs, or the Marlin clip-ID model.",
   "requestFramePermissions": []
 }

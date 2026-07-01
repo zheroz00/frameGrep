@@ -340,7 +340,7 @@ export const analyzeVideoLocal = async (
   // Add OpenRouter-specific headers if using OpenRouter
   if (endpoint.includes('openrouter.ai')) {
     headers['HTTP-Referer'] = window.location.origin;
-    headers['X-Title'] = 'FPV.AI Editor';
+    headers['X-Title'] = 'frameGrep';
   }
 
   // OpenRouter routes `anthropic/*` to whichever backend is cheapest by default.

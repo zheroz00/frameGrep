@@ -314,80 +314,17 @@ function vllmModelManagerMiddleware(): Plugin {
         }));
       });
 
-      server.middlewares.use('/api/local-vlm/swap', async (req, res, next) => {
+      server.middlewares.use('/api/local-vlm/swap', (req, res, next) => {
         if (req.method !== 'POST') return next();
-
-        let body = '';
-        for await (const chunk of req) body += chunk;
-        let parsed: { model?: string; maxModelLen?: number };
-        try {
-          parsed = JSON.parse(body || '{}');
-        } catch {
-          res.statusCode = 400;
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ error: 'invalid-json' }));
-          return;
-        }
-
-        const requested = parsed.model;
-        if (!requested || typeof requested !== 'string') {
-          res.statusCode = 400;
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ error: 'missing-model' }));
-          return;
-        }
-
-        // Allowlist check — only swap to models we discovered locally. Prevents
-        // arbitrary HF IDs (which would trigger a download) and shell injection.
-        const available = discoverLocalVLMs(HF_CACHE_DIR);
-        if (!available.find(m => m.id === requested)) {
-          res.statusCode = 400;
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ error: 'model-not-cached', requested, available: available.map(m => m.id) }));
-          return;
-        }
-
-        const maxLen = typeof parsed.maxModelLen === 'number' && parsed.maxModelLen >= 1024
-          ? Math.floor(parsed.maxModelLen) : undefined;
-
-        const swapScript = join(REPO_ROOT, 'scripts/vllm-swap.sh');
-        const args = maxLen ? [requested, String(maxLen)] : [requested];
-        console.log(`[vllm-swap] dispatching ${swapScript} ${args.join(' ')}`);
-
-        const proc = spawn('bash', [swapScript, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
-        let stdout = '';
-        let stderr = '';
-        proc.stdout.on('data', c => { stdout += c.toString(); });
-        proc.stderr.on('data', c => { stderr += c.toString(); });
-
-        proc.on('exit', code => {
-          if (code === 0) {
-            res.statusCode = 202;
-            res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({
-              dispatched: true,
-              model: requested,
-              stdout: stdout.slice(-2000),
-              note: 'Poll /api/local-vlm/swap-status to detect readiness (~60-90s).',
-            }));
-          } else {
-            console.error(`[vllm-swap] script failed code=${code}\nstderr:\n${stderr}`);
-            res.statusCode = 500;
-            res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({
-              error: 'swap-script-failed', code,
-              stderr: stderr.slice(-2000),
-              stdout: stdout.slice(-2000),
-            }));
-          }
-        });
-
-        proc.on('error', err => {
-          console.error('[vllm-swap] spawn error:', err.message);
-          res.statusCode = 500;
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ error: 'spawn-failed', message: err.message }));
-        });
+        // RETIRED: vLLM now runs under PM2 as 'vllm-server'. Kill+relaunch from here
+        // would fight PM2's autorestart (it would just respawn the old model), so the
+        // in-app swap is intentionally disabled. Model selection is manual + single-
+        // sourced: set VLLM_MODEL in .env.local, then `pm2 restart vllm-server`.
+        res.statusCode = 410;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({
+          error: 'vLLM model switching is now manual — set VLLM_MODEL in .env.local, then run: pm2 restart vllm-server --update-env',
+        }));
       });
     },
   };
@@ -397,7 +334,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   return {
     server: {
-      port: 3006,
+      port: 3007,
       host: '0.0.0.0',
       allowedHosts: ['fpv.r3belmind.dev', 'localhost', '.devtunnels.ms'],
       proxy: {

@@ -42,6 +42,7 @@ export default function SettingsModal({ isOpen, onClose, appSettings }: Settings
     updateGeminiApiKey,
     updateGeminiModel,
     updateGeminiMediaResolution,
+    updateGeminiFps,
     updateCustomConfig,
     updateJamendoClientId,
     saveSettings,
@@ -273,6 +274,33 @@ export default function SettingsModal({ isOpen, onClose, appSettings }: Settings
                       <div className="text-xs text-zinc-500 mt-0.5">Sharper, $$</div>
                     </button>
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-zinc-300 mb-2">
+                    Sampling Rate (FPS)
+                  </label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[1, 2, 4, 6].map(fps => (
+                      <button
+                        key={fps}
+                        type="button"
+                        onClick={() => updateGeminiFps(fps)}
+                        className={`px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                          settings.geminiFps === fps
+                            ? 'border-amber-500 bg-amber-500/10 text-white'
+                            : 'border-zinc-800 bg-zinc-950 text-zinc-300 hover:border-zinc-700'
+                        }`}
+                      >
+                        {fps === 1 ? '1 (default)' : `${fps} fps`}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-zinc-500 mt-1">
+                    Frames per second Gemini actually looks at. Gemini defaults to 1 fps —
+                    fast action (backflips, gaps) can fall between frames. Higher fps catches
+                    sub-second moves but costs more tokens (pairs well with Low resolution).
+                  </p>
                 </div>
               </>
             )}

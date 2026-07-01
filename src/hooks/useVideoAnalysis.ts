@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, type ChangeEvent } from 'react';
 import { uploadVideo, analyzeVideo, UploadPhase } from '../services/geminiService';
 import { analyzeVideoLocal, analyzeVideoNative, LocalVLMConfig } from '../services/localVLMService';
-import { analyzeVideoMarlin } from '../services/marlinService';
+import { analyzeVideoMarlin, findInVideoMarlin, MarlinFindResult, MarlinFindOptions } from '../services/marlinService';
 import { extractVideoMetadata } from '../services/mediaInfoService';
 import { shouldTranscode, transcodeVideo } from '../services/transcodeService';
 import { renderFpvMoveDictionary } from '../constants/fpvMoves';
@@ -17,6 +17,12 @@ export const parseTime = (timeStr: string): number => {
   if (parts.length === 2) return parts[0] * 60 + parts[1];
   if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
   return 0;
+};
+
+/** Formats seconds to "MM:SS" (inverse of parseTime, for spans returned in seconds). */
+export const secondsToMmss = (seconds: number): string => {
+  const s = Math.max(0, Math.round(seconds));
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 };
 
 /** Validates clip has valid start/end times */
@@ -118,10 +124,25 @@ export interface UseVideoAnalysisReturn {
       localConfig?: LocalVLMConfig;
       geminiModel?: GeminiModel;
       geminiMediaResolution?: GeminiMediaResolution;
+      geminiFps?: number;
       marlinEndpoint?: string;
     }
   ) => Promise<void>;
   handlePlayClip: (clip: ClipSegment, index: number) => void;
+
+  // Marlin Mode 2 — interactive footage search
+  marlinSearch: {
+    isSearching: boolean;
+    query: string;
+    result: MarlinFindResult | null;
+    error: string | null;
+    added: boolean;
+  };
+  searchMarlinVideo: (query: string, opts?: MarlinFindOptions) => Promise<void>;
+  previewMarlinSpan: () => void;
+  addFoundClip: () => void;
+  removeClipAt: (globalIndex: number) => void;
+
   setError: (error: string | null) => void;
   loadClipsFromProject: (clips: ClipSegment[], videoFilenames: string[]) => void;
   relinkVideos: (files: FileList | File[]) => Promise<number>;
@@ -146,6 +167,16 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
   const [currentStart, setCurrentStart] = useState<number | undefined>(undefined);
   const [currentEnd, setCurrentEnd] = useState<number | undefined>(undefined);
   const [activeClipIndex, setActiveClipIndex] = useState<number | null>(null);
+
+  // Marlin Mode 2 — interactive footage search (find mode). Independent of the analysis
+  // queue: the user types a query, we resolve it to a span and preview it in the player.
+  const [marlinSearch, setMarlinSearch] = useState<{
+    isSearching: boolean;
+    query: string;
+    result: MarlinFindResult | null;
+    error: string | null;
+    added: boolean;
+  }>({ isSearching: false, query: '', result: null, error: null, added: false });
 
   const isBusy = status === AppStatus.UPLOADING || status === AppStatus.PROCESSING || status === AppStatus.ANALYZING;
 
@@ -255,10 +286,11 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
       localConfig?: LocalVLMConfig;
       geminiModel?: GeminiModel;
       geminiMediaResolution?: GeminiMediaResolution;
+      geminiFps?: number;
       marlinEndpoint?: string;
     } = {}
   ) => {
-    const { localConfig, geminiModel = 'gemini-2.5-flash-lite', geminiMediaResolution = 'low', marlinEndpoint = '/api/marlin' } = options;
+    const { localConfig, geminiModel = 'gemini-2.5-flash-lite', geminiMediaResolution = 'low', geminiFps = 1, marlinEndpoint = '/api/marlin' } = options;
     const pendingItems = videoQueue.filter(item => item.status === 'pending');
 
     if (pendingItems.length === 0) {
@@ -421,7 +453,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
 
             // Use the transcoded file's mime type if we transcoded (mp4); otherwise the original.
             const uploadedMime = fileToUpload.type || item.file.type;
-            result = await analyzeVideo(apiKey, fileUri, uploadedMime, finalInstruction, geminiModel, geminiMediaResolution);
+            result = await analyzeVideo(apiKey, fileUri, uploadedMime, finalInstruction, geminiModel, geminiMediaResolution, geminiFps);
           }
 
           // Add sourceFile to each clip and filter invalid ones
@@ -469,6 +501,108 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     setCurrentEnd(parseTime(clip.end_time));
     setActiveClipIndex(index);
   }, [videoQueue]);
+
+  /** Seek the player to a raw (start, end) span in seconds, on a given queue item. */
+  const previewSpan = useCallback((item: VideoQueueItem, startSec: number, endSec: number) => {
+    setActiveVideoUrl(item.url);
+    setActiveVideoName(item.file.name);
+    setCurrentStart(startSec);
+    setCurrentEnd(endSec);
+    setActiveClipIndex(null); // not one of the analyzed clips
+  }, []);
+
+  /**
+   * Marlin Mode 2 — resolve a query to a span and preview it. Searches the active video
+   * (matched by name) or, failing that, the first queued item with a real file.
+   */
+  const searchMarlinVideo = useCallback(async (query: string, opts?: MarlinFindOptions) => {
+    const trimmed = query.trim();
+    if (!trimmed) return;
+
+    const target =
+      videoQueue.find(item => item.file.name === activeVideoName && item.file.size > 0) ??
+      videoQueue.find(item => item.file.size > 0);
+
+    if (!target) {
+      setMarlinSearch({ isSearching: false, query: trimmed, result: null, error: 'Upload a video before searching.', added: false });
+      return;
+    }
+
+    setMarlinSearch({ isSearching: true, query: trimmed, result: null, error: null, added: false });
+    try {
+      const result = await findInVideoMarlin({ endpoint: '/api/marlin' }, target.file, trimmed, opts);
+      setMarlinSearch({ isSearching: false, query: trimmed, result, error: null, added: false });
+      if (result.span) {
+        previewSpan(target, result.span[0], result.span[1]);
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Search failed.';
+      setMarlinSearch({ isSearching: false, query: trimmed, result: null, error: message, added: false });
+    }
+  }, [videoQueue, activeVideoName, previewSpan]);
+
+  /** Re-seek the player to the last found span without re-querying the model. */
+  const previewMarlinSpan = useCallback(() => {
+    const span = marlinSearch.result?.span;
+    if (!span) return;
+    const target =
+      videoQueue.find(item => item.file.name === activeVideoName && item.file.size > 0) ??
+      videoQueue.find(item => item.file.size > 0);
+    if (target) previewSpan(target, span[0], span[1]);
+  }, [marlinSearch.result, videoQueue, activeVideoName, previewSpan]);
+
+  /**
+   * Persist the current Marlin find result as a real ClipSegment on its source video's
+   * queue item, so it shows in the sidebar and exports. Description = the search query
+   * verbatim. excitement_score is a neutral placeholder (find produces no real score).
+   */
+  const addFoundClip = useCallback(() => {
+    const span = marlinSearch.result?.span;
+    const query = marlinSearch.query.trim();
+    if (!span || !query) return;
+
+    const target =
+      videoQueue.find(item => item.file.name === activeVideoName && item.file.size > 0) ??
+      videoQueue.find(item => item.file.size > 0);
+    if (!target) return;
+
+    const newClip: ClipSegment = {
+      start_time: secondsToMmss(span[0]),
+      end_time: secondsToMmss(span[1]),
+      description: query,
+      excitement_score: 5, // neutral placeholder — find does no scoring
+      sourceFile: target.file.name,
+      reasoning: `Added from Marlin search: "${query}"`,
+    };
+
+    // Dedupe: skip if an identical clip already exists on this item.
+    const isDuplicate = target.clips.some(
+      c =>
+        c.start_time === newClip.start_time &&
+        c.end_time === newClip.end_time &&
+        c.description === newClip.description,
+    );
+    if (!isDuplicate) {
+      updateQueueItem(target.id, { clips: [...target.clips, newClip] });
+    }
+    setMarlinSearch(prev => ({ ...prev, added: true }));
+  }, [marlinSearch.result, marlinSearch.query, videoQueue, activeVideoName, updateQueueItem]);
+
+  /**
+   * Remove a clip by its position in `allClips`. Maps the global index to the owning
+   * queue item + local index (allClips preserves queue order) and splices it out.
+   */
+  const removeClipAt = useCallback((globalIndex: number) => {
+    let remaining = globalIndex;
+    for (const item of videoQueue) {
+      if (remaining < item.clips.length) {
+        const nextClips = item.clips.filter((_, i) => i !== remaining);
+        updateQueueItem(item.id, { clips: nextClips });
+        return;
+      }
+      remaining -= item.clips.length;
+    }
+  }, [videoQueue, updateQueueItem]);
 
   const loadClipsFromProject = useCallback((clips: ClipSegment[], videoFilenames: string[]) => {
     // Clear existing queue
@@ -566,6 +700,12 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     clearQueue,
     runAnalysis,
     handlePlayClip,
+    // Marlin Mode 2 search
+    marlinSearch,
+    searchMarlinVideo,
+    previewMarlinSpan,
+    addFoundClip,
+    removeClipAt,
     setError,
     loadClipsFromProject,
     relinkVideos,

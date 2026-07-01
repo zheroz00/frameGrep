@@ -3,12 +3,26 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>FPV AI Editor</title>
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <title>frameGrep</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
       body {
         background-color: #09090b; /* Zinc 950 */
         color: #e4e4e7; /* Zinc 200 */
+      }
+      /* Ghosted brand backdrop — faint frameGrep poster fixed behind all content */
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        background-image: url('/assets/bg.jpeg');
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+        opacity: 0.07;
+        pointer-events: none;
       }
       /* Custom scrollbar for cyber aesthetic */
       ::-webkit-scrollbar {

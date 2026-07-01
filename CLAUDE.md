@@ -6,7 +6,7 @@ The app's core purpose is **clip identification + music suggestion + export to e
 
 ## Project Overview
 
-FPV.AI Editor is a React application that uses Google's Gemini AI to analyze FPV drone footage and automatically identify highlight moments. Users upload video files, configure analysis presets, and export clips as EDL files (DaVinci Resolve/Premiere) or FFmpeg scripts.
+frameGrep is a React application that analyzes FPV/drone footage to automatically identify highlight moments. Users upload video files, configure analysis presets, and export clips as EDL files (DaVinci Resolve/Premiere), FFmpeg scripts, or FCPXML. Analysis runs through one of three providers: Google Gemini (native video), a Custom OpenAI-compatible endpoint (OpenRouter / local vLLM / local llama.cpp), or the local Marlin-2B clip-ID model. (The app was formerly named "FPV.AI Editor"; the header/title/package are now branded **frameGrep**.)
 
 **Source files live in `src/`** — `App.tsx`, `types.ts`, `index.tsx` and all subdirectories (`components/`, `hooks/`, `services/`, `utils/`, `constants/`) are under `src/`. Config files (`vite.config.ts`, `tsconfig.json`, `index.html`, `package.json`) remain at the project root.
 
@@ -14,7 +14,7 @@ FPV.AI Editor is a React application that uses Google's Gemini AI to analyze FPV
 
 ```bash
 npm install          # Install dependencies
-npm run dev          # Start dev server at http://localhost:3006
+npm run dev          # Start dev server at http://localhost:3007
 npm run build        # Production build
 npm run preview      # Preview production build
 ```
@@ -113,6 +113,7 @@ All state lives in 5 custom hooks instantiated in `App.tsx`. Hook return values 
 
 **AI Provider Notes**:
 - **Gemini**: Default analysis model is `gemini-2.5-flash-lite` — chosen based on Marc's empirical testing (5 accurate clips vs 1 from `gemini-3.1-flash-lite` on the same FPV footage; see `docs/model_test_notes.md`). User can switch via Settings dropdown; choice is auto-saved to localStorage. Prompt optimization ("AI Polish" button) uses `gemini-3-flash-preview` hardcoded. Caption generation (`captionService.ts`) uses `gemini-2.5-flash` with free-form JSON. All analysis uses structured JSON via `responseSchema`.
+- **Gemini video sampling — two independent knobs** (both in Settings, both persisted): `geminiMediaResolution` (`low`/`default`) sets frame *sharpness* / tokens-per-frame; `geminiFps` sets how *many* frames/sec Gemini samples. Gemini's own default is **1 fps**, which misses sub-second FPV action (backflips/gaps fall between frames), so frameGrep defaults `geminiFps` to **4**. It's passed as `videoMetadata: { fps }` on the video part in `geminiService.ts`, and only sent when `fps > 1` (so `fps=1` preserves Gemini's native default). Higher fps = more tokens; pairs well with `low` resolution. This mirrors the Custom/frame-extraction path, which already clamps short clips to 4 fps.
 - **FPV preset prompts** auto-append the canonical move dictionary (`fpvMoves.ts`) at runtime via `useVideoAnalysis.ts`. AI Polish is instructed to NOT generate a `MOVE VOCABULARY` section to avoid duplication.
 - **Custom (OpenRouter/Ollama/vLLM)**: OpenAI-compatible API. Default model `qwen/qwen3-vl-235b-a22b-instruct`. Uses frame extraction since these APIs don't support video upload natively. Anthropic-direct provider is force-pinned for `anthropic/*` models on OpenRouter (Bedrock substitutes a non-vision Haiku otherwise).
 - Clips use "MM:SS" time format internally across all providers
@@ -167,39 +168,3 @@ All state lives in 5 custom hooks instantiated in `App.tsx`. Hook return values 
 - Utils/services: camelCase (`exportUtils.ts`)
 - Constants: SCREAMING_SNAKE_CASE for values, camelCase for files
 
-
----
-
-## Corkboard Integration
-
-The corkboard is for **action items only** - things that require Marc's attention or intervention. Don't clutter it with status updates or informational notes.
-
-**Automated alerts (handled by hooks):**
-- AskUserQuestion tool triggers → auto-posts when waiting for input
-- Critical command failures → auto-posts on fatal errors, permission denied, etc.
-
-**When to manually post:**
-- Task complete and needs testing/review
-- Blocked and need Marc to provide info, credentials, or make a decision
-- Found something important Marc should know about (security issue, breaking change, etc.)
-- Build/deploy ready for verification
-
-**When NOT to post:**
-- Progress updates ("finished step 3 of 5")
-- Commits made (informational, not actionable)
-- Simple completions that don't need review
-- Anything Marc doesn't need to act on
-
-```bash
-# Post + alert (brings board forward)
-corkboard add task "READY FOR TESTING" "Login flow complete - test at localhost:3000" 1 && corkboard alert
-corkboard add task "NEED INFO" "Which S3 bucket for prod assets?" 1 && corkboard alert
-corkboard add alert "SECURITY" "Found exposed API key in .env.example" 1 && corkboard alert
-
-# Just list or manage (no alert needed)
-corkboard list
-corkboard complete <id>
-```
-
-**Types:** task, note, link, event, alert, email
-**Priority:** 1=high, 2=medium, 3=low

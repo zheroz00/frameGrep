@@ -91,7 +91,7 @@ export async function transcodeVideo(
     return result;
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
-    throw new Error(`Transcode failed: ${detail}. Check pm2 logs fpv-ai-editor.`);
+    throw new Error(`Transcode failed: ${detail}. Check pm2 logs frameGrep-Marlin.`);
   }
 }
 

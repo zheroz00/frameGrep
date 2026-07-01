@@ -1,7 +1,7 @@
 module.exports = {
     apps: [
         {
-            name: 'fpv-ai-editor',
+            name: 'frameGrep-Marlin',
             script: 'npm',
             args: 'run dev',
             env: {
@@ -26,6 +26,29 @@ module.exports = {
             env: {
                 GPU: '0',
                 PORT: '8003',
+            },
+        },
+        {
+            // General-purpose vLLM server (the 'vllm' custom provider, native video).
+            // Serves standard VLM architectures (Qwen-VL, etc.) — NOT Marlin, whose
+            // arch vLLM can't load (that's why marlin-server exists separately).
+            //
+            // Start on demand:  pm2 start ecosystem.config.cjs --only vllm-server
+            // Model lives in .env.local (VLLM_MODEL / VLLM_MAX_LEN); to switch:
+            //   edit .env.local, then `pm2 restart vllm-server --update-env`.
+            //
+            // GPU 0 fits ONE heavy user at a time — stop llama-server-cuda and
+            // marlin-server before starting this (it grabs ~95% of the card).
+            // Intentionally NOT in the boot resurrect set (run `pm2 save` to pin).
+            name: 'vllm-server',
+            script: 'scripts/vllm-server.sh',
+            interpreter: 'bash',
+            cwd: __dirname,
+            autorestart: true,
+            max_restarts: 5,
+            env: {
+                GPU: '0',
+                PORT: '8002',
             },
         },
     ],

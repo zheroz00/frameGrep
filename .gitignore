@@ -39,3 +39,6 @@ dist-ssr
 
 # Browser automation cache (Playwright MCP screenshots, traces, etc.)
 .playwright-mcp/
+# Python bytecode (marlin/vllm helper scripts)
+__pycache__/
+*.pyc

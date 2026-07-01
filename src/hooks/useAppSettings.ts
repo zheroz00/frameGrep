@@ -108,6 +108,7 @@ const getDefaultSettings = (): AppSettings => ({
   geminiApiKey: import.meta.env.VITE_GEMINI_API_KEY || '',
   geminiModel: 'gemini-2.5-flash-lite',
   geminiMediaResolution: 'low',
+  geminiFps: 4,   // Sample 4 frames/sec to catch sub-second FPV action (backflips/gaps); cheap on 'low' resolution. Gemini's own default is 1.
   customConfig: {
     endpoint: import.meta.env.VITE_OPENROUTER_ENDPOINT || 'https://openrouter.ai/api/v1',
     model: import.meta.env.VITE_OPENROUTER_MODEL || 'qwen/qwen3-vl-8b-instruct',
@@ -140,6 +141,7 @@ export interface UseAppSettingsReturn {
   updateGeminiApiKey: (key: string) => void;
   updateGeminiModel: (model: GeminiModel) => void;
   updateGeminiMediaResolution: (resolution: GeminiMediaResolution) => void;
+  updateGeminiFps: (fps: number) => void;
   updateCustomConfig: (config: Partial<CustomProviderConfig>) => void;
   updateJamendoClientId: (clientId: string) => void;
   saveSettings: () => void;
@@ -345,6 +347,10 @@ export function useAppSettings(): UseAppSettingsReturn {
     setSettings(prev => ({ ...prev, geminiMediaResolution }));
   }, []);
 
+  const updateGeminiFps = useCallback((geminiFps: number) => {
+    setSettings(prev => ({ ...prev, geminiFps }));
+  }, []);
+
   const updateCustomConfig = useCallback((config: Partial<CustomProviderConfig>) => {
     setSettings(prev => ({
       ...prev,
@@ -376,6 +382,7 @@ export function useAppSettings(): UseAppSettingsReturn {
     updateGeminiApiKey,
     updateGeminiModel,
     updateGeminiMediaResolution,
+    updateGeminiFps,
     updateCustomConfig,
     updateJamendoClientId,
     saveSettings,

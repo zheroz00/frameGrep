@@ -12,6 +12,7 @@ import SettingsModal from './components/settings/SettingsModal';
 import ProjectsSidebar from './components/ProjectsSidebar';
 import CaptionModal from './components/CaptionModal';
 import MusicPanel from './components/MusicPanel';
+import MarlinSearchPanel from './components/MarlinSearchPanel';
 import { usePresets } from './hooks/usePresets';
 import { useVideoAnalysis } from './hooks/useVideoAnalysis';
 import { useAppSettings } from './hooks/useAppSettings';
@@ -162,6 +163,7 @@ export default function App() {
         localConfig: provider === 'custom' ? settings.customConfig : undefined,
         geminiModel: settings.geminiModel,
         geminiMediaResolution: settings.geminiMediaResolution,
+        geminiFps: settings.geminiFps,
         marlinEndpoint: settings.marlinEndpoint,
       }
     );
@@ -207,7 +209,7 @@ export default function App() {
     || 'Custom';
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-200 font-sans selection:bg-amber-500/30">
+    <div className="min-h-screen bg-transparent text-zinc-200 font-sans selection:bg-amber-500/30">
       {/* Confirmation Modal */}
       {confirmAction.isOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -266,12 +268,7 @@ export default function App() {
       <header className="border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center shadow-[0_0_15px_rgba(245,158,11,0.3)]">
-              <Zap className="text-zinc-900" size={20} fill="currentColor" />
-            </div>
-            <h1 className="text-xl font-bold tracking-tight text-white">
-              FPV<span className="text-zinc-500 font-light">.AI</span> Editor
-            </h1>
+            <img src="/assets/frameGrep-header.png" alt="frameGrep" className="h-9 w-auto" />
           </div>
           <div className="flex items-center gap-3">
             {/* Provider Toggle */}
@@ -661,6 +658,20 @@ export default function App() {
               )}
             </div>
 
+            {/* Marlin Mode 2 — interactive footage search */}
+            {provider === 'marlin' && analysis.videoQueue.some(item => item.file.size > 0) && (
+              <MarlinSearchPanel
+                targetVideoName={analysis.activeVideoName}
+                isSearching={analysis.marlinSearch.isSearching}
+                result={analysis.marlinSearch.result}
+                error={analysis.marlinSearch.error}
+                added={analysis.marlinSearch.added}
+                onSearch={analysis.searchMarlinVideo}
+                onReplay={analysis.previewMarlinSpan}
+                onAdd={analysis.addFoundClip}
+              />
+            )}
+
             {/* Export Panel */}
             {analysis.allClips.length > 0 && (
               <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-xl">
@@ -803,6 +814,7 @@ export default function App() {
                     onPlay={() => analysis.handlePlayClip(clip, idx)}
                     onCaption={() => setCaptionModal({ isOpen: true, clip, mode: 'clip' })}
                     onMusic={() => music.openPanel('single_clip', idx)}
+                    onRemove={() => analysis.removeClipAt(idx)}
                     isActive={analysis.activeClipIndex === idx}
                     showSource={hasMultipleSources}
                   />

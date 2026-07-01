@@ -7,14 +7,18 @@ path (~4.4GB VRAM) and exposes a tiny HTTP API the FPV.AI app calls through the
 `/api/marlin` Vite proxy:
 
   GET  /health   -> readiness / connection test
-  POST /analyze  -> raw video bytes in, {"clips": [...]} out
+  POST /analyze  -> raw video bytes in, {"clips": [...]} out          (Mode 1: auto-caption)
+  POST /find     -> raw video bytes + ?event=... in, {"span": ...} out (Mode 2: manual search)
 
-We use Marlin's CAPTION mode only (its canonical prompt). It watches the whole clip
-unprompted and returns a Scene paragraph + dense timestamped Events; we adapt those
-Events into the app's ClipSegment shape here, server-side, next to the model.
+Mode 1 (/analyze) uses Marlin's CAPTION mode (its canonical prompt). It watches the
+whole clip unprompted and returns a Scene paragraph + dense timestamped Events; we adapt
+those Events into the app's ClipSegment shape here, server-side, next to the model.
 
-NOTE: find mode is intentionally unused — it fabricates a span on every call
-(never reports "not present"), so it is unsafe for unattended clip discovery.
+Mode 2 (/find) uses Marlin's FIND mode to resolve a natural-language query to a single
+(start, end) span. NOTE: find fabricates a span on every call (it never reports "not
+present"), so it is unsafe for *unattended* discovery — but Mode 2 is *interactive*: the
+user typed the query and previews the returned span to confirm it, so the human is the
+verifier and the fabrication risk is sidestepped.
 
 Run via scripts/marlin-server.sh (sets GPU + port + uses the vllm conda env).
 """
@@ -137,6 +141,24 @@ def _run_caption(path: str, max_new_tokens: int) -> dict:
     return STATE["model"].caption(path, max_new_tokens=max_new_tokens)
 
 
+def _run_find(
+    path: str,
+    event: str,
+    prompt_template: str | None,
+    do_sample: bool,
+    temperature: float,
+    max_new_tokens: int,
+) -> dict:
+    return STATE["model"].find(
+        path,
+        event=event,
+        prompt_template=prompt_template,
+        do_sample=do_sample,
+        temperature=temperature,
+        max_new_tokens=max_new_tokens,
+    )
+
+
 @app.post("/analyze")
 async def analyze(request: Request):
     if STATE["model"] is None:
@@ -172,6 +194,79 @@ async def analyze(request: Request):
                 "clips": clips,
                 "scene": res.get("scene", ""),
                 "event_count": len(res.get("events") or []),
+                "elapsed_s": elapsed,
+            }
+        )
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+
+
+@app.post("/find")
+async def find(request: Request):
+    """Mode 2: resolve a natural-language query to a single (start, end) span.
+
+    Interactive use only — the caller previews the span to confirm it (find always
+    fabricates a span, so an unverified result is meaningless on its own).
+    """
+    if STATE["model"] is None:
+        raise HTTPException(status_code=503, detail="Model still loading")
+
+    event = (request.query_params.get("event") or "").strip()
+    if not event:
+        raise HTTPException(status_code=400, detail="Missing `event` query param")
+
+    data = await request.body()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty body — send raw video bytes")
+
+    try:
+        max_new_tokens = int(request.query_params.get("max_new_tokens", 128))
+    except ValueError:
+        max_new_tokens = 128
+    try:
+        temperature = float(request.query_params.get("temperature", 0))
+    except ValueError:
+        temperature = 0.0
+    do_sample = temperature > 0  # greedy/deterministic by default — reproducible boundaries
+    # Optional override. MUST keep the "From <start> to <end>" structure or the span
+    # parser fails (format_ok=false). None -> Marlin's canonical GROUNDING_PROMPT_TEMPLATE.
+    prompt_template = request.query_params.get("prompt_template") or None
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+    try:
+        tmp.write(data)
+        tmp.flush()
+        tmp.close()
+
+        t0 = time.time()
+        async with _gpu_lock:
+            res = await asyncio.to_thread(
+                _run_find, tmp.name, event, prompt_template, do_sample, temperature, max_new_tokens
+            )
+        elapsed = round(time.time() - t0, 1)
+
+        span = res.get("span")
+        # Normalize to a plain [start, end] list of floats (or null).
+        norm_span = None
+        if span and len(span) == 2:
+            try:
+                norm_span = [float(span[0]), float(span[1])]
+            except (TypeError, ValueError):
+                norm_span = None
+
+        print(
+            f"/find: q={event!r} {len(data) / 1e6:.0f}MB -> "
+            f"span={norm_span} (format_ok={res.get('format_ok')}) in {elapsed}s",
+            flush=True,
+        )
+        return JSONResponse(
+            {
+                "span": norm_span,
+                "raw": res.get("raw", ""),
+                "format_ok": bool(res.get("format_ok")),
                 "elapsed_s": elapsed,
             }
         )
