@@ -13,6 +13,8 @@ import ProjectsSidebar from './components/ProjectsSidebar';
 import CaptionModal from './components/CaptionModal';
 import MusicPanel from './components/MusicPanel';
 import MarlinSearchPanel from './components/MarlinSearchPanel';
+import GpuWidget from './components/GpuWidget';
+import { isLocalProvider } from './utils/providerUtils';
 import { usePresets } from './hooks/usePresets';
 import { useVideoAnalysis } from './hooks/useVideoAnalysis';
 import { useAppSettings } from './hooks/useAppSettings';
@@ -349,6 +351,9 @@ export default function App() {
             >
               <Music size={16} />
             </button>
+
+            {/* GPU Activity Widget — only while a local model is the active provider */}
+            <GpuWidget enabled={isLocalProvider(settings)} />
 
             {/* Settings Button */}
             <button

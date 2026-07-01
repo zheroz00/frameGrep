@@ -165,6 +165,73 @@ function nvencTranscodeMiddleware(): Plugin {
   };
 }
 
+interface GpuStat {
+  index: number;
+  util: number;       // GPU utilization %
+  memUsedMB: number;
+  memTotalMB: number;
+}
+
+/**
+ * Run `nvidia-smi` once and parse per-GPU utilization + VRAM.
+ * Rejects if nvidia-smi is missing, exits non-zero, or hangs past the timeout.
+ */
+function runNvidiaSmi(): Promise<GpuStat[]> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('nvidia-smi', [
+      '--query-gpu=index,utilization.gpu,memory.used,memory.total',
+      '--format=csv,noheader,nounits',
+    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => { try { proc.kill('SIGKILL'); } catch { /* ignore */ } }, 3000);
+
+    proc.stdout.on('data', c => { stdout += c.toString(); });
+    proc.stderr.on('data', c => { stderr += c.toString(); });
+    proc.on('error', err => { clearTimeout(timer); reject(err); });
+    proc.on('exit', code => {
+      clearTimeout(timer);
+      if (code !== 0) return reject(new Error(`nvidia-smi exited ${code}: ${stderr.slice(-200)}`));
+      const gpus = stdout.trim().split('\n').filter(Boolean).map(line => {
+        const [index, util, memUsed, memTotal] = line.split(',').map(s => parseInt(s.trim(), 10));
+        return { index, util, memUsedMB: memUsed, memTotalMB: memTotal };
+      }).filter(g => Number.isFinite(g.index));
+      resolve(gpus);
+    });
+  });
+}
+
+/**
+ * GET /api/gpu — live per-GPU utilization + VRAM for the in-app activity widget.
+ * Result is cached ~1s so rapid polling (or multiple clients) doesn't spam nvidia-smi.
+ * Returns 503 { error } if nvidia-smi is unavailable (widget shows "GPU n/a").
+ */
+function gpuStatsMiddleware(): Plugin {
+  let cache: { ts: number; gpus: GpuStat[] } | null = null;
+  const TTL_MS = 1000;
+  return {
+    name: 'fpv-gpu-stats',
+    configureServer(server) {
+      server.middlewares.use('/api/gpu', async (req, res, next) => {
+        if (req.method !== 'GET') return next();
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Cache-Control', 'no-store');
+        try {
+          if (!cache || Date.now() - cache.ts > TTL_MS) {
+            cache = { ts: Date.now(), gpus: await runNvidiaSmi() };
+          }
+          res.statusCode = 200;
+          res.end(JSON.stringify({ gpus: cache.gpus }));
+        } catch (err) {
+          res.statusCode = 503;
+          res.end(JSON.stringify({ error: (err as Error).message || 'nvidia-smi unavailable' }));
+        }
+      });
+    },
+  };
+}
+
 // Architectures we recognize as vision-capable Qwen/InternVL/MiniCPM/LLaVA models.
 // Add to this list if you start downloading other VLM families.
 const VISION_ARCHITECTURES = new Set([
