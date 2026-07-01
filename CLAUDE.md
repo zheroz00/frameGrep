@@ -92,11 +92,11 @@ All state lives in 5 custom hooks instantiated in `App.tsx`. Hook return values 
 4. Response parsed into `ClipSegment[]`, user exports via `exportUtils`
 
 **Adaptive Frame Extraction** (`localVLMService.ts`):
-- Frame budget: 200 frames for cloud VLMs (Qwen3-VL on OpenRouter handles ~256K context), 60 frames for local llama-swap (Qwen3-VL-8B @ 65K context).
+- Frame budget: 200 frames for cloud VLMs (Qwen3-VL on OpenRouter handles ~256K context). For local vLLM the budget is **derived from a token budget** (not hardcoded) so it can't overflow the context: `floor((LOCAL_CONTEXT_TOKENS − LOCAL_MAX_OUTPUT_TOKENS − LOCAL_PROMPT_RESERVE) / LOCAL_EST_TOKENS_PER_FRAME)` ≈ **50 frames** at 32K ctx. Keep `LOCAL_CONTEXT_TOKENS` (in `localVLMService.ts`) in sync with `VLLM_MAX_LEN` (`.env.local`). A previous hardcoded "60 @ 65K" assumption blew past the 32K vLLM (57924 > 32768). `capFrames()` is a hard post-extraction safety trim so the adaptive-FPS floor can't overshoot on very long clips.
 - Frame rate adapts to video duration: `fps = max(MIN_FPS, min(MAX_FPS, maxFrames / duration))` where `MIN_FPS=0.1`, `MAX_FPS=4.0`.
 - Short clips (< 15s on cloud): clamps at 4 fps — enough to catch sub-second action like backflips.
 - Long videos: reduced fps to stay under the frame budget.
-- Frames scaled to max 1280x720 JPEG at quality 0.7 to reduce token cost.
+- Frames scaled to JPEG q0.7 to reduce token cost: max 1280x720 for cloud, **max 896x512 for local vLLM** (smaller frames → more of them fit the 32K window; temporal coverage beats per-frame sharpness for spotting FPV action).
 - Local VLMs receive `/no_think` directive in the prompt + `chat_template_kwargs.enable_thinking: false` to disable Qwen3.x reasoning blocks (otherwise they burn the token budget before emitting JSON).
 
 **Multi-Video Support**:
@@ -137,7 +137,7 @@ All state lives in 5 custom hooks instantiated in `App.tsx`. Hook return values 
 
 **Dev Server Notes**:
 - Vite proxies `/api/jamendo/*` → `https://api.jamendo.com` to avoid CORS in development
-- Vite middleware exposes `POST /api/transcode` — receives raw video bytes, spawns NVENC ffmpeg child process on GPU 1, streams output back as fragmented MP4. Defined in `vite.config.ts` (`nvencTranscodeMiddleware`). Used by `services/transcodeService.ts` for files exceeding Gemini's upload limits.
+- Vite middleware exposes `POST /api/transcode` — receives raw video bytes, spawns NVENC ffmpeg child process on GPU 1, streams output back as fragmented MP4. Defined in `vite.config.ts` (`nvencTranscodeMiddleware`). Used by `services/transcodeService.ts` for files exceeding Gemini's upload limits. The filter chain forces `format=yuv420p` (8-bit): DJI D-Log/HLG footage is often **10-bit HEVC**, which `h264_nvenc` cannot encode ("10 bit encode not supported") — downconverting keeps the H.264 path working.
 - Allowed hosts: `localhost` and `fpv.r3belmind.dev` (production)
 - PM2 deployment config in `ecosystem.config.cjs`
 

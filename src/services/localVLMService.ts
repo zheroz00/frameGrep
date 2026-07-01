@@ -11,11 +11,29 @@ export interface LocalVLMConfig {
 
 export type FrameExtractionProgress = (current: number, total: number) => void;
 
-// Max frames to send to VLM
-// Cloud APIs (OpenRouter): 60 frames works well with large context windows
-// Local VLMs (vLLM/Ollama): 15-20 frames recommended for 8K context models
+// ── Frame budget ────────────────────────────────────────────────────────────
+// Cloud APIs (OpenRouter): huge context windows handle many high-res frames.
 const DEFAULT_MAX_FRAMES = 200;          // cloud: Qwen3-VL 256K ctx handles ~200 frames comfortably
-const LOCAL_MODEL_MAX_FRAMES = 60;       // local llama-swap qwen3-vl-8b @ 65K ctx
+const CLOUD_MAX_OUTPUT_TOKENS = 16384;   // reasoning headroom is cheap at 256K ctx
+
+// Local vLLM (Qwen3-VL-8B). Context is small, so the frame budget is DERIVED from a
+// token budget rather than hardcoded — this is what previously drifted: a fixed "60
+// frames @ 65K ctx" assumption blew past the actual 32K server (57924 > 32768).
+// Keep LOCAL_CONTEXT_TOKENS in sync with VLLM_MAX_LEN in .env.local.
+const LOCAL_CONTEXT_TOKENS = 32768;
+const LOCAL_MAX_OUTPUT_TOKENS = 6144;    // room for the JSON clip array (thinking is disabled)
+const LOCAL_PROMPT_RESERVE = 1500;       // system instruction + move dictionary + frame list
+const LOCAL_EST_TOKENS_PER_FRAME = 500;  // ~512p Qwen3-VL image (empirical: ~945 tok @ 720p → ~470 @ 512p)
+// Frames that fit the local context with headroom for prompt + generated output.
+const LOCAL_MODEL_MAX_FRAMES = Math.floor(
+  (LOCAL_CONTEXT_TOKENS - LOCAL_MAX_OUTPUT_TOKENS - LOCAL_PROMPT_RESERVE) / LOCAL_EST_TOKENS_PER_FRAME
+);
+
+// Per-frame resolution ceilings. Local uses smaller frames so more of them fit the
+// 32K window — temporal coverage beats per-frame sharpness for spotting FPV action.
+const CLOUD_FRAME_MAX_W = 1280, CLOUD_FRAME_MAX_H = 720;
+const LOCAL_FRAME_MAX_W = 896, LOCAL_FRAME_MAX_H = 512;
+
 const MIN_FPS = 0.1;                     // 1 frame per 10s — long-clip floor
 const MAX_FPS = 4.0;                     // 1 frame per 0.25s — catches sub-second action (e.g. backflips)
 
@@ -105,10 +123,25 @@ const blobUrlToFile = async (blobUrl: string, filename: string): Promise<File> =
 /**
  * Extract frames from video at specified interval using canvas
  */
+/**
+ * Evenly sample a frame list down to `limit` so we never exceed the token budget —
+ * a safety net for the adaptive-FPS floor (MIN_FPS on very long clips can overshoot
+ * the frame budget). Preserves first/last coverage and real timestamps.
+ */
+const capFrames = <T,>(frames: T[], limit: number): T[] => {
+  if (limit <= 0 || frames.length <= limit) return frames;
+  const step = frames.length / limit;
+  const out: T[] = [];
+  for (let i = 0; i < limit; i++) out.push(frames[Math.floor(i * step)]);
+  return out;
+};
+
 export const extractFramesFromVideo = async (
   videoFile: File,
   framesPerSecond: number = 0.5,
-  onProgress?: FrameExtractionProgress
+  onProgress?: FrameExtractionProgress,
+  maxWidth: number = CLOUD_FRAME_MAX_W,
+  maxHeight: number = CLOUD_FRAME_MAX_H
 ): Promise<{ timestamp: number; base64: string }[]> => {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
@@ -132,8 +165,8 @@ export const extractFramesFromVideo = async (
       const duration = video.duration;
       const totalFrames = Math.ceil(duration * framesPerSecond);
 
-      // Set canvas size to reasonable dimensions (max 720p to save tokens)
-      const scale = Math.min(1, 1280 / video.videoWidth, 720 / video.videoHeight);
+      // Scale down to the caller's ceiling (720p cloud / 512p local) to save tokens.
+      const scale = Math.min(1, maxWidth / video.videoWidth, maxHeight / video.videoHeight);
       canvas.width = video.videoWidth * scale;
       canvas.height = video.videoHeight * scale;
 
@@ -284,26 +317,37 @@ export const analyzeVideoLocal = async (
   onProgress?.('extracting', 'Reading video metadata...');
   const duration = await getVideoDuration(videoFile);
 
-  // Get max frames based on endpoint type (local models need fewer frames)
+  // Get max frames based on endpoint type (local models have a smaller context)
+  const isLocal = isLocalEndpoint(config.endpoint);
   const maxFrames = getMaxFrames(config);
 
   // Calculate adaptive FPS to stay under frame limit
   const fps = calculateAdaptiveFps(duration, maxFrames);
   const estimatedFrames = Math.ceil(duration * fps);
 
-  const endpointType = isLocalEndpoint(config.endpoint) ? 'local' : 'cloud';
+  const endpointType = isLocal ? 'local' : 'cloud';
   onProgress?.('extracting', `Extracting ~${estimatedFrames} frames (${fps.toFixed(2)} fps, ${endpointType} mode)...`);
 
-  const frames = await extractFramesFromVideo(
+  let frames = await extractFramesFromVideo(
     videoFile,
     fps,
     (current, total) => {
       onProgress?.('extracting', `Extracting frames: ${current}/${total}`);
-    }
+    },
+    isLocal ? LOCAL_FRAME_MAX_W : CLOUD_FRAME_MAX_W,
+    isLocal ? LOCAL_FRAME_MAX_H : CLOUD_FRAME_MAX_H,
   );
 
   if (frames.length === 0) {
     throw new Error('No frames extracted from video');
+  }
+
+  // Hard safety net: never send more frames than the token budget allows, even if the
+  // adaptive-FPS floor overshot on a very long clip. Guarantees we stay under context.
+  const beforeTrim = frames.length;
+  frames = capFrames(frames, maxFrames);
+  if (frames.length < beforeTrim) {
+    onProgress?.('extracting', `Trimmed ${beforeTrim} → ${frames.length} frames to fit context window`);
   }
 
   const interval = (1 / fps).toFixed(1);
@@ -358,8 +402,9 @@ export const analyzeVideoLocal = async (
       }
     ],
     temperature: 0.2,
-    // Higher cap so reasoning-mode models (Qwen3.x) have headroom to think AND emit JSON.
-    max_tokens: 16384,
+    // Local: keep output within the 32K window (see budget constants). Cloud: generous
+    // headroom. Thinking is disabled below, so 6K is ample for the JSON clip array.
+    max_tokens: isLocal ? LOCAL_MAX_OUTPUT_TOKENS : CLOUD_MAX_OUTPUT_TOKENS,
     // Honored by llama.cpp jinja templates for Qwen3.x — disables <think> blocks entirely.
     chat_template_kwargs: { enable_thinking: false },
     stream: true
