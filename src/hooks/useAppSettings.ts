@@ -110,6 +110,7 @@ const getDefaultSettings = (): AppSettings => ({
   geminiMediaResolution: 'low',
   geminiFps: 4,   // Sample 4 frames/sec to catch sub-second FPV action (backflips/gaps); cheap on 'low' resolution. Gemini's own default is 1.
   autoDownsample: true,   // Auto-transcode 4K/high-fps clips to 720p/30fps before upload; original file on disk is never touched.
+  davinciMediaFolder: '', // Optional source-video folder; when set, FCPXML embeds absolute paths so DaVinci auto-links media.
   customConfig: {
     endpoint: import.meta.env.VITE_OPENROUTER_ENDPOINT || 'https://openrouter.ai/api/v1',
     model: import.meta.env.VITE_OPENROUTER_MODEL || 'qwen/qwen3-vl-8b-instruct',

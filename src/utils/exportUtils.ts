@@ -7,29 +7,30 @@ const parseTimeToSeconds = (timeStr: string): number => {
   return 0;
 };
 
-const formatSecondsToSMPTE = (seconds: number): string => {
+const formatSecondsToSMPTE = (seconds: number, fps: number = 30): string => {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = Math.floor(seconds % 60);
-  const f = Math.floor((seconds % 1) * 24); // Assuming 24fps for EDL standard
+  const f = Math.floor((seconds % 1) * fps); // Frame field at the timeline's real fps
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}:${String(f).padStart(2, '0')}`;
 };
 
 /**
  * Generates a CMX 3600 EDL string for DaVinci Resolve / Premiere
- * Supports multi-source clips via clip.sourceFile
+ * Supports multi-source clips via clip.sourceFile.
+ * Pass the source fps so sub-second cut points land correctly (defaults to 30).
  */
-export const generateEDL = (filename: string, clips: ClipSegment[]): string => {
+export const generateEDL = (filename: string, clips: ClipSegment[], fps: number = 30): string => {
   let edl = `TITLE: FPV_SUPERCUT\nFCM: NON-DROP FRAME\n\n`;
   let timelineCursor = 0;
   clips.forEach((clip, index) => {
     const startSec = parseTimeToSeconds(clip.start_time);
     const endSec = parseTimeToSeconds(clip.end_time);
     const duration = endSec - startSec;
-    const clipStart = formatSecondsToSMPTE(startSec);
-    const clipEnd = formatSecondsToSMPTE(endSec);
-    const timelineStart = formatSecondsToSMPTE(timelineCursor);
-    const timelineEnd = formatSecondsToSMPTE(timelineCursor + duration);
+    const clipStart = formatSecondsToSMPTE(startSec, fps);
+    const clipEnd = formatSecondsToSMPTE(endSec, fps);
+    const timelineStart = formatSecondsToSMPTE(timelineCursor, fps);
+    const timelineEnd = formatSecondsToSMPTE(timelineCursor + duration, fps);
     const idx = String(index + 1).padStart(3, '0');
     const sourceFile = clip.sourceFile || filename;
     edl += `${idx}  AX       V     C        ${clipStart} ${clipEnd} ${timelineStart} ${timelineEnd}\n`;
@@ -107,11 +108,27 @@ const escapeXMLAttr = (str: string): string => {
 };
 
 /**
+ * Builds the media-rep `src` file:// URL for an asset.
+ * - No folder  → filename-only `file:///name.mp4` (points at fs root; user relinks in the NLE).
+ * - Folder set → absolute `file:///abs/path/name.mp4` so DaVinci auto-links on import.
+ * A browser can't read an upload's real path, so the folder is user-supplied (POSIX target;
+ * Windows drive letters are best-effort). Path segments are percent-encoded for a valid URL.
+ */
+const buildMediaSrc = (filename: string, folder?: string): string => {
+  if (!folder || !folder.trim()) return `file:///${escapeXMLAttr(filename)}`;
+  const f = folder.trim().replace(/\\/g, '/').replace(/\/+$/, ''); // win→posix, strip trailing /
+  const abs = f.startsWith('/') ? f : `/${f}`;                     // ensure leading slash
+  const enc = abs.split('/').map(encodeURIComponent).join('/');    // percent-encode segments
+  return escapeXMLAttr(`file://${enc}/${encodeURIComponent(filename)}`);
+};
+
+/**
  * FCPXML export options
  */
 export interface FCPXMLOptions {
   audioFilename?: string;    // Optional music track filename
   metadata?: VideoMetadata;  // Video metadata for fps/resolution (auto-detected)
+  mediaFolder?: string;      // Optional source-video folder path → embeds absolute paths for auto-link
 }
 
 /**
@@ -130,7 +147,7 @@ export const generateFCPXML = (
   clips: ClipSegment[],
   options: FCPXMLOptions = {}
 ): string => {
-  const { audioFilename, metadata } = options;
+  const { audioFilename, metadata, mediaFolder } = options;
 
   // Use detected metadata or sensible defaults
   const fps = metadata?.fps || 30;
@@ -180,7 +197,7 @@ export const generateFCPXML = (
     // Add 10% buffer to duration to ensure clips don't exceed source bounds
     const assetDuration = secondsToFCPXMLTime(duration * 1.1, fps);
     resources += `    <asset id="${id}" name="${escapedName}" start="0s" duration="${assetDuration}" hasVideo="1" hasAudio="1" format="r1">\n`;
-    resources += `      <media-rep kind="original-media" src="file:///${escapedName}"/>\n`;
+    resources += `      <media-rep kind="original-media" src="${buildMediaSrc(file, mediaFolder)}"/>\n`;
     resources += `    </asset>\n`;
   });
 
@@ -217,7 +234,8 @@ export const generateFCPXML = (
     const markerText = escapeXMLAttr(clip.description || `Clip ${index + 1}`);
 
     spine += `          <asset-clip ref="${assetRef}" offset="${offsetTime}" name="${clipName}" start="${startTime}" duration="${durationTime}" format="r1" tcFormat="NDF"${srcEnableAttr}>\n`;
-    spine += `            <marker start="0s" duration="0s" value="${markerText}"/>\n`;
+    // One-frame marker duration (1/fps s); Resolve can reject zero-duration markers.
+    spine += `            <marker start="0s" duration="1/${fps}s" value="${markerText}"/>\n`;
     spine += `          </asset-clip>\n`;
 
     timelineOffset += duration;
@@ -300,10 +318,11 @@ export const filterClipsForExport = (
 export const generateEDLWithMode = (
   filename: string,
   clips: ClipSegment[],
-  mode: ExportMode
+  mode: ExportMode,
+  fps: number = 30
 ): string => {
   const filteredClips = filterClipsForExport(clips, mode);
-  return generateEDL(filename, filteredClips);
+  return generateEDL(filename, filteredClips, fps);
 };
 
 /**

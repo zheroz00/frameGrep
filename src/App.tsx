@@ -54,7 +54,7 @@ export default function App() {
   const music = useMusic();
 
   // Destructure commonly used settings
-  const { settings, updateProvider } = appSettings;
+  const { settings, updateProvider, updateSettings } = appSettings;
   const provider = settings.provider;
   const currentVideoFilenames = analysis.videoQueue.map(v => v.file.name);
 
@@ -693,7 +693,7 @@ export default function App() {
                     </div>
                     <div className="flex gap-2">
                       <button
-                        onClick={() => downloadFile(generateEDLWithMode(sourceFiles[0] || 'video.mp4', analysis.allClips, exportMode), 'FPV_Supercut.edl')}
+                        onClick={() => downloadFile(generateEDLWithMode(sourceFiles[0] || 'video.mp4', analysis.allClips, exportMode, firstVideoMetadata?.fps), 'FPV_Supercut.edl')}
                         className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs rounded flex items-center gap-2 transition-colors"
                       >
                         <Monitor size={12} /> EDL
@@ -709,6 +709,7 @@ export default function App() {
                           const fcpxmlOptions: FCPXMLOptions = {
                             audioFilename: music.selectedTrack?.filename,
                             metadata: firstVideoMetadata,
+                            mediaFolder: settings.davinciMediaFolder,
                           };
                           downloadFile(
                             generateFCPXMLWithMode(exportProjectName, analysis.allClips, exportMode, fcpxmlOptions),
@@ -760,6 +761,18 @@ export default function App() {
                       </span>
                     </div>
                   )}
+                  {/* Optional source-video folder → FCPXML embeds absolute paths so DaVinci auto-links media (blank = relink in Resolve) */}
+                  <div className="flex items-center gap-2">
+                    <FolderOpen size={13} className="text-zinc-500 shrink-0" />
+                    <input
+                      type="text"
+                      value={settings.davinciMediaFolder || ''}
+                      onChange={(e) => updateSettings({ davinciMediaFolder: e.target.value })}
+                      placeholder="/path/to/footage — source folder for DaVinci auto-link (optional)"
+                      className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-[11px] font-mono text-zinc-300 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500/50"
+                      title="Paste the folder holding your source video(s). FCPXML embeds absolute paths so Resolve links media automatically on import. Leave blank to relink in Resolve."
+                    />
+                  </div>
                 </div>
                 <div className="p-4 bg-black/50">
                   <div className="flex items-center gap-2 text-xs text-zinc-500 mb-3 font-mono">
