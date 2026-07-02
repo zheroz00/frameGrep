@@ -41,25 +41,29 @@ are documented in **[docs/local-inference-cheatsheet.md](docs/local-inference-ch
 
 ## Setup
 
-**Prerequisites:** Node.js.
+**Prerequisites:** Node.js 18+. Cloud providers (Gemini, OpenRouter) need nothing else.
+Self-hosting the **local** model providers additionally requires an NVIDIA GPU with CUDA
+and an ffmpeg build with NVENC (used for both transcoding and local inference).
 
 1. Install dependencies:
    ```bash
    npm install
    ```
-2. Create `.env.local` with the keys you need (all optional — keys can also be entered in
-   the in-app Settings):
+2. Copy the environment template and fill in the keys you need (all optional — keys can
+   also be entered in the in-app Settings):
    ```bash
-   VITE_GEMINI_API_KEY=AIza...                 # Google Gemini
-   VITE_OPENROUTER_API_KEY=sk-or-v1-...        # OpenRouter (Custom provider)
-   VITE_OPENROUTER_ENDPOINT=https://openrouter.ai/api/v1
-   VITE_OPENROUTER_MODEL=qwen/qwen3-vl-8b-instruct
-   VITE_JAMENDO_CLIENT_ID=...                  # Music suggestions
+   cp .env.example .env.local
    ```
+   At minimum, set **one** provider — e.g. `VITE_GEMINI_API_KEY` for Gemini. `.env.example`
+   documents the rest (OpenRouter, Jamendo music, and the local-inference options).
 3. Run the dev server (starts at **http://localhost:3007**):
    ```bash
    npm run dev
    ```
+
+> **Production builds:** `npm run build` inlines `GEMINI_API_KEY` (if set) into the bundle —
+> anyone with the built `dist/` can read it. Keep keys out of shared builds; for local dev,
+> use `VITE_GEMINI_API_KEY` / the in-app Settings instead.
 
 ## Docs
 
@@ -70,3 +74,10 @@ are documented in **[docs/local-inference-cheatsheet.md](docs/local-inference-ch
 
 React 19 · Vite 6 · TypeScript · Tailwind CSS · Google Gemini + OpenAI-compatible VLMs ·
 `mediainfo.js` (WASM).
+
+## License
+
+Licensed under the **GNU Affero General Public License v3.0** (AGPL-3.0) — see
+[LICENSE](LICENSE). You're free to use, study, modify, and self-host frameGrep. If you run a
+modified version as a network service, the AGPL requires you to make your modified source
+available to its users. Contributions are welcome under the same license.

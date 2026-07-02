@@ -413,13 +413,13 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
               console.log(`Transcoding ${item.file.name}: ${decision.reason}`);
               updateQueueItem(item.id, { status: 'preparing' });
               setUploadPhase('preparing');
-              setPhaseDetail('NVENC transcoding (GPU 1) — connecting...');
+              setPhaseDetail('NVENC transcoding — connecting...');
               setProcessingProgress({ attempt: 0, maxAttempts: 100 });
 
               fileToUpload = await transcodeVideo(item.file, (progress) => {
                 const receivedMB = progress.receivedBytes / 1_048_576;
                 setPhaseDetail(
-                  `NVENC transcoding (GPU 1) — ${receivedMB.toFixed(1)} MB received`
+                  `NVENC transcoding — ${receivedMB.toFixed(1)} MB received`
                 );
                 // Drive the progress bar from received/input bytes, capped at 95%
                 // (output is usually smaller than input, so we never hit 100% here).

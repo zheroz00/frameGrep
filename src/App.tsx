@@ -625,7 +625,7 @@ export default function App() {
                         )}
                         {analysis.phaseDetail || (
                           <>
-                            {analysis.uploadPhase === 'preparing' && "NVENC transcoding (GPU 1)..."}
+                            {analysis.uploadPhase === 'preparing' && "NVENC transcoding..."}
                             {analysis.uploadPhase === 'uploading' && "Uploading to Gemini Files API..."}
                             {analysis.uploadPhase === 'processing' && `Gemini processing video on Google servers (${analysis.processingProgress.attempt}/${analysis.processingProgress.maxAttempts} polls, ${analysis.processingProgress.attempt * 2}s elapsed)...`}
                             {analysis.uploadPhase === 'extracting' && "Extracting video frames..."}

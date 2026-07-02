@@ -5,17 +5,17 @@ set -e
 # Loads NemoStation/Marlin-2B via transformers (~4.4GB VRAM) and serves:
 #   GET  /health
 #   POST /analyze   (raw video bytes -> {clips:[...]})
-# The FPV.AI app reaches it through the /api/marlin Vite proxy (vite.config.ts).
+# The frameGrep app reaches it through the /api/marlin Vite proxy (vite.config.ts).
 #
 # Usage:
-#   scripts/marlin-server.sh                 # GPU 0 (16GB 4060 Ti), port 8003
-#   GPU=1 scripts/marlin-server.sh           # NOTE: the 8GB Quadro OOMs under load
+#   scripts/marlin-server.sh                 # GPU 0, port 8003
+#   GPU=1 scripts/marlin-server.sh           # pick a different GPU
 #   PORT=8013 scripts/marlin-server.sh       # alternate port
 #
-# Defaults to GPU 0 (16GB): weights are ~4.4GB but caption generation needs another
-# ~4.3GB for attention over the video frames, so the 8GB card OOMs. Marlin shares
-# GPU 0 with vLLM / llama-swap — only one heavy GPU-0 user at a time, so stop the
-# others first if VRAM is tight: `pm2 stop vllm-server llama-server-cuda`.
+# VRAM: weights are ~4.4GB but caption generation needs another ~4.3GB for
+# attention over the video frames, so budget ~9GB free — an 8GB card OOMs under
+# load. If this GPU is shared with another heavy user (e.g. a local LLM), stop
+# the other one first when VRAM is tight.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -31,7 +31,7 @@ if [ -f "${PROJECT_ROOT}/.env.local" ]; then
   . "${PROJECT_ROOT}/.env.local"
   set +a
 fi
-export HF_HOME="${HF_HOME:-/mnt/gamesSSD/models/huggingface}"
+export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
 if [ -z "${HF_TOKEN:-}" ]; then
   echo "WARNING: HF_TOKEN unset — gated NemoStation/Marlin-2B will 401 unless already cached." >&2
 fi
@@ -45,4 +45,6 @@ export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:T
 echo "Starting Marlin server on port ${MARLIN_PORT} (GPU ${CUDA_VISIBLE_DEVICES})..."
 echo "Poll http://localhost:${MARLIN_PORT}/health for readiness."
 
-exec /home/hank/miniconda/envs/vllm/bin/python "${SCRIPT_DIR}/marlin_server.py"
+# Uses `python` on PATH by default; set PYTHON_BIN in .env.local to point at a
+# specific interpreter (e.g. a conda/venv path) if needed.
+exec "${PYTHON_BIN:-python}" "${SCRIPT_DIR}/marlin_server.py"

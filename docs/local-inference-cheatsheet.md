@@ -1,12 +1,12 @@
 # frameGrep — Analysis Provider Cheatsheet
 
 Every way frameGrep can analyze video — cloud and local — plus how to run the local ones:
-services, ports, GPUs, and how to start/stop each. The local half is written for the
-dual-GPU box (`fpv.r3belmind.dev`).
+services, ports, GPUs, and how to start/stop each. The local half describes an **example
+single-box setup**; adapt ports, GPU indexes, and paths to your own machine.
 
 > **Start here:** pick a provider from the table below. Cloud providers (Gemini, OpenRouter)
 > need only an API key. Local providers (vLLM, llama-swap, Marlin) are PM2 services — start
-> the one you want, stop the others, because **GPU 0 holds one heavy user at a time**.
+> the one you want, stop the others, because **one GPU holds one heavy user at a time**.
 
 ---
 
@@ -96,10 +96,10 @@ pm2 logs   <name>      # tail logs
 
 ## ⚠️ Two gotchas worth remembering
 
-**1. The process-name red herring.** The conda env is *named* `vllm`, and *both* vLLM and
-the Marlin server run inside it. So **every** Python process from that env shows up as
-`/home/hank/miniconda/envs/vllm/bin/python …` — Marlin *looks* like vLLM in `ps`/`top`.
-**Don't trust `ps`. Identify by PM2 name + port.** To be sure what's actually running:
+**1. The process-name red herring.** If both vLLM and the Marlin server run from the same
+Python env, **every** process from that env shows the same interpreter path — Marlin *looks*
+like vLLM in `ps`/`top`. **Don't trust `ps`. Identify by PM2 name + port.** To be sure what's
+actually running:
 
 ```bash
 ss -tlnp | grep -E ':(7744|8002|8003) '   # 7744=llama-swap  8002=vLLM  8003=Marlin
@@ -121,14 +121,18 @@ curl -s localhost:7744/v1/models     # llama-swap
 
 ## GPU layout & the one rule
 
-| GPU | Card | VRAM | Used by |
-|---|---|---|---|
-| **0** | RTX 4060 Ti | 16 GB | vLLM **or** llama-swap **or** Marlin |
-| **1** | Quadro RTX 4000 | 8 GB | llama-swap spillover; NVENC transcode (`/api/transcode`). Too small for Marlin/vLLM. |
+Example two-GPU layout (adapt to your own hardware):
 
-**The one rule: run a single heavy GPU-0 user at a time.** vLLM grabs ~95% of the card,
-so it can't share with llama-swap or Marlin. There's **no auto-swap** anymore — *you* stop
-the others before starting the one you want. If something OOMs, check what else is loaded:
+| GPU | VRAM | Used by |
+|---|---|---|
+| **0** | 16 GB+ | vLLM **or** llama-swap **or** Marlin (the heavy inference GPU) |
+| **1** | 8 GB | llama-swap spillover; NVENC transcode (`/api/transcode`, set `NVENC_GPU`). Too small for Marlin/vLLM. |
+
+Single-GPU machines run everything on GPU 0 — just start one heavy service at a time.
+
+**The one rule: run a single heavy inference user per GPU at a time.** vLLM grabs ~95% of the
+card, so it can't share with llama-swap or Marlin. There's **no auto-swap** — *you* stop the
+others before starting the one you want. If something OOMs, check what else is loaded:
 
 ```bash
 nvidia-smi --query-compute-apps=pid,used_memory --format=csv
@@ -161,11 +165,12 @@ pm2 stop vllm-server marlin-server
 pm2 start llama-server-cuda
 curl -s localhost:7744/v1/models
 ```
-llama-swap loads GGUF models on demand and swaps between them (config:
-`/mnt/dockerSSD/git/llama.cpp/llama-swap.yaml`); one model is loaded at a time and a
-request for a different one evicts the current. In the app: **Custom**, endpoint
-`/api/llama/v1`, pick a model id. Available ids: `bonsai-8b`, `qwen3-vl-8b`, `gpt-oss-20b`,
-`gemma4-26b`, `qwen3.5-27b-tq3`, `qwen3.6-27b`, `qwen3.6-27b-mtp`, `qwen3.6-27b-vl`.
+[llama-swap](https://github.com/mostlygeek/llama-swap) is an optional, bring-your-own
+llama.cpp server: it loads GGUF models on demand and swaps between them per your own
+`llama-swap.yaml`; one model is loaded at a time and a request for a different one evicts
+the current. In the app: **Custom**, endpoint `/api/llama/v1`, pick one of the model ids
+your config defines. (This server isn't shipped in the repo — the app just proxies to it
+on port 7744 if you run one.)
 
 **Use Marlin** (local clip-ID, :8003):
 ```bash
@@ -187,14 +192,14 @@ pm2 stop vllm-server marlin-server llama-server-cuda
 ## Config & secrets
 
 - **`.env.local`** (gitignored) is the single source for local-inference config:
-  - `HF_TOKEN` — Hugging Face token (account `Zheroz00`). Needed for the **gated**
-    `NemoStation/Marlin-2B` download, and for any gated vLLM model. Sourced by both
-    `scripts/vllm-server.sh` and `scripts/marlin-server.sh`. **Not** hardcoded in any
-    tracked script. Rotate here if it ever leaks/expires.
+  - `HF_TOKEN` — your Hugging Face token. Needed for the **gated** `NemoStation/Marlin-2B`
+    download, and for any gated vLLM model. Sourced by both `scripts/vllm-server.sh` and
+    `scripts/marlin-server.sh`. **Not** hardcoded in any tracked script. Rotate here if it
+    ever leaks/expires.
   - `VLLM_MODEL`, `VLLM_MAX_LEN`, optional `VLLM_GPU_MEM_UTIL` — vLLM model selection.
-- **HF cache** is pinned to `/mnt/gamesSSD/models/huggingface` (persistent, shared) so a
-  wipe of `~/.cache/huggingface` can't strand a server with no weights + no token — the
-  exact failure that crash-looped `marlin-server` once.
+- **HF cache** defaults to HF's standard `~/.cache/huggingface`. Point `HF_HOME` /
+  `HF_HUB_CACHE` at a larger/persistent drive in `.env.local` if you want weights to survive
+  a `~/.cache` wipe (a wiped cache with no token can strand a server with no weights).
 
 ---
 
@@ -208,7 +213,7 @@ The HTTPS app reaches these HTTP services through Vite proxies (avoids CORS / mi
 | `/api/vllm` | `http://localhost:8002` (vLLM) |
 | `/api/marlin` | `http://localhost:8003` (Marlin) |
 | `/api/jamendo` | `https://api.jamendo.com` (music) |
-| `/api/transcode` | NVENC ffmpeg middleware (GPU 1) |
+| `/api/transcode` | NVENC ffmpeg middleware (`NVENC_GPU`, default 0) |
 
 `GET /api/local-vlm/models` and `/api/local-vlm/swap-status` still work (read-only — they
 report which vLLM model is loaded). `POST /api/local-vlm/swap` is retired (returns 410):

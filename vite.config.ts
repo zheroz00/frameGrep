@@ -3,7 +3,7 @@ import { defineConfig, loadEnv, Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { spawn } from 'node:child_process';
 import { createWriteStream, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 /**
@@ -84,10 +84,10 @@ function nvencTranscodeMiddleware(): Plugin {
             '-c:v', 'h264_nvenc',
             '-preset', 'p4',
             '-cq', '28',
-            // Pin to CUDA 1 (Quadro RTX 4000, Turing). Full NVENC H.264 support;
-            // a generation older than the 4060 Ti but plenty for encode-only work.
-            // Keeps GPU 0 (4060 Ti) free for llama-swap inference — no VRAM contention.
-            '-gpu', '1',
+            // Pin NVENC to a specific GPU via NVENC_GPU (default 0). On a multi-GPU
+            // box, point this at an encode GPU so your inference GPU stays free of
+            // encoder/VRAM contention.
+            '-gpu', process.env.NVENC_GPU || '0',
           ];
 
           if (includeAudio) {
@@ -254,7 +254,9 @@ const VISION_ARCHITECTURES = new Set([
   'llava_onevision',
 ]);
 
-const HF_CACHE_DIR = process.env.HF_HUB_CACHE || '/mnt/gamesSSD/models/huggingface/hub';
+// HuggingFace hub cache. Defaults to HF's own standard location; override with
+// HF_HUB_CACHE in .env.local if your models live on a different drive.
+const HF_CACHE_DIR = process.env.HF_HUB_CACHE || join(homedir(), '.cache/huggingface/hub');
 const VLLM_PORT = parseInt(process.env.VLLM_PORT || '8002', 10);
 const REPO_ROOT = __dirname;
 
@@ -410,7 +412,9 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 3007,
       host: '0.0.0.0',
-      allowedHosts: ['fpv.r3belmind.dev', 'localhost', '.devtunnels.ms'],
+      // localhost for local dev; .devtunnels.ms covers VS Code dev tunnels.
+      // Set ALLOWED_HOST in .env.local to expose the dev server on your own domain.
+      allowedHosts: ['localhost', '.devtunnels.ms', ...(env.ALLOWED_HOST ? [env.ALLOWED_HOST] : [])],
       proxy: {
         // Proxy Jamendo API to avoid CORS/Origin issues
         '/api/jamendo': {

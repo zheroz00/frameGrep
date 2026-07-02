@@ -2,7 +2,7 @@
 
 ## Context
 
-FPV.AI Editor uploads video files directly to the Gemini Files API for AI analysis. When users upload large files (1.7GB+), the upload succeeds but Gemini's server-side processing times out at the 5-minute hard limit. The bottleneck is not the upload itself — it's Google's servers decoding and tokenizing large, high-resolution video files within the processing window.
+frameGrep uploads video files directly to the Gemini Files API for AI analysis. When users upload large files (1.7GB+), the upload succeeds but Gemini's server-side processing times out at the 5-minute hard limit. The bottleneck is not the upload itself — it's Google's servers decoding and tokenizing large, high-resolution video files within the processing window.
 
 Currently, raw files are sent as-is with no optimization. A 4K file encoded at a high bitrate forces Gemini to spend most of its 5-minute processing budget just decoding the video, leaving insufficient time for tokenization. Since Gemini analyzes video at ~1 fps internally, it doesn't benefit from 4K resolution or high bitrates — 720p is more than sufficient for identifying highlights.
 

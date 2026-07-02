@@ -1,5 +1,5 @@
 #!/bin/bash
-# FPV.AI Video Prep - HEVC/NVENC Transcoder
+# frameGrep Video Prep - HEVC/NVENC Transcoder
 # Drop files in ./input, run this script, get smaller files in ./output
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,7 +17,7 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-echo -e "${GREEN}=== FPV.AI Video Prep ===${NC}"
+echo -e "${GREEN}=== frameGrep Video Prep ===${NC}"
 echo "Input:  $INPUT_DIR"
 echo "Output: $OUTPUT_DIR"
 echo ""
@@ -77,4 +77,4 @@ done
 echo -e "${GREEN}=== Complete ===${NC}"
 echo "Output files in: $OUTPUT_DIR"
 echo ""
-echo "Next: Upload the _h265.mp4 files to FPV.AI Editor"
+echo "Next: Upload the _h265.mp4 files to frameGrep"

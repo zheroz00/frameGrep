@@ -23,7 +23,7 @@ npm run preview      # Preview production build
 
 **No linting or formatting tools** — no ESLint, Prettier, or EditorConfig. Code style is enforced by convention only.
 
-**PM2 deployment** (`ecosystem.config.cjs`): Runs `npm run dev` (the Vite dev server), not a production build. This is intentional for the current single-user deployment at `fpv.r3belmind.dev`.
+**PM2 deployment** (`ecosystem.config.cjs`): Runs `npm run dev` (the Vite dev server), not a production build. This is intentional for a simple single-instance deployment (dev server behind a reverse proxy).
 
 ## Environment Setup
 
@@ -112,7 +112,7 @@ All state lives in 5 custom hooks instantiated in `App.tsx`. Hook return values 
 - Music is free for personal use with attribution (Creative Commons)
 
 **AI Provider Notes**:
-- **Gemini**: Default analysis model is `gemini-2.5-flash-lite` — chosen based on Marc's empirical testing (5 accurate clips vs 1 from `gemini-3.1-flash-lite` on the same FPV footage; see `docs/model_test_notes.md`). User can switch via Settings dropdown; choice is auto-saved to localStorage. Prompt optimization ("AI Polish" button) uses `gemini-3-flash-preview` hardcoded. Caption generation (`captionService.ts`) uses `gemini-2.5-flash` with free-form JSON. All analysis uses structured JSON via `responseSchema`.
+- **Gemini**: Default analysis model is `gemini-2.5-flash-lite` — chosen based on empirical testing (5 accurate clips vs 1 from `gemini-3.1-flash-lite` on the same FPV footage; see `docs/model_test_notes.md`). User can switch via Settings dropdown; choice is auto-saved to localStorage. Prompt optimization ("AI Polish" button) uses `gemini-3-flash-preview` hardcoded. Caption generation (`captionService.ts`) uses `gemini-2.5-flash` with free-form JSON. All analysis uses structured JSON via `responseSchema`.
 - **Gemini video sampling — two independent knobs** (both in Settings, both persisted): `geminiMediaResolution` (`low`/`default`) sets frame *sharpness* / tokens-per-frame; `geminiFps` sets how *many* frames/sec Gemini samples. Gemini's own default is **1 fps**, which misses sub-second FPV action (backflips/gaps fall between frames), so frameGrep defaults `geminiFps` to **4**. It's passed as `videoMetadata: { fps }` on the video part in `geminiService.ts`, and only sent when `fps > 1` (so `fps=1` preserves Gemini's native default). Higher fps = more tokens; pairs well with `low` resolution. This mirrors the Custom/frame-extraction path, which already clamps short clips to 4 fps.
 - **FPV preset prompts** auto-append the canonical move dictionary (`fpvMoves.ts`) at runtime via `useVideoAnalysis.ts`. AI Polish is instructed to NOT generate a `MOVE VOCABULARY` section to avoid duplication.
 - **Custom (OpenRouter/Ollama/vLLM)**: OpenAI-compatible API. Default model `qwen/qwen3-vl-235b-a22b-instruct`. Uses frame extraction since these APIs don't support video upload natively. Anthropic-direct provider is force-pinned for `anthropic/*` models on OpenRouter (Bedrock substitutes a non-vision Haiku otherwise).
@@ -137,8 +137,8 @@ All state lives in 5 custom hooks instantiated in `App.tsx`. Hook return values 
 
 **Dev Server Notes**:
 - Vite proxies `/api/jamendo/*` → `https://api.jamendo.com` to avoid CORS in development
-- Vite middleware exposes `POST /api/transcode` — receives raw video bytes, spawns NVENC ffmpeg child process on GPU 1, streams output back as fragmented MP4. Defined in `vite.config.ts` (`nvencTranscodeMiddleware`). Used by `services/transcodeService.ts` for files exceeding Gemini's upload limits. The filter chain forces `format=yuv420p` (8-bit): DJI D-Log/HLG footage is often **10-bit HEVC**, which `h264_nvenc` cannot encode ("10 bit encode not supported") — downconverting keeps the H.264 path working.
-- Allowed hosts: `localhost` and `fpv.r3belmind.dev` (production)
+- Vite middleware exposes `POST /api/transcode` — receives raw video bytes, spawns an NVENC ffmpeg child process (GPU selected via `NVENC_GPU`, default 0), streams output back as fragmented MP4. Defined in `vite.config.ts` (`nvencTranscodeMiddleware`). Used by `services/transcodeService.ts` for files exceeding Gemini's upload limits. The filter chain forces `format=yuv420p` (8-bit): DJI D-Log/HLG footage is often **10-bit HEVC**, which `h264_nvenc` cannot encode ("10 bit encode not supported") — downconverting keeps the H.264 path working.
+- Allowed hosts: `localhost` and `.devtunnels.ms`; set `ALLOWED_HOST` in `.env.local` to add your own domain
 - PM2 deployment config in `ecosystem.config.cjs`
 
 ## Code Organization Guidelines

@@ -37,6 +37,13 @@ dist-ssr
 *.webm
 *.WEBM
 
+# Exported timelines — generated output; often embeds absolute local media paths
+*.fcpxml
+*.edl
+
+# Local MCP / editor tooling config (maintainer-specific)
+.mcp.json
+
 # Browser automation cache (Playwright MCP screenshots, traces, etc.)
 .playwright-mcp/
 # Python bytecode (marlin/vllm helper scripts)

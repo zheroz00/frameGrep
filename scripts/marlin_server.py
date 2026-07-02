@@ -3,7 +3,7 @@
 Marlin-2B local analysis server (FastAPI).
 
 Loads NemoStation/Marlin-2B once via the documented transformers trust_remote_code
-path (~4.4GB VRAM) and exposes a tiny HTTP API the FPV.AI app calls through the
+path (~4.4GB VRAM) and exposes a tiny HTTP API the frameGrep app calls through the
 `/api/marlin` Vite proxy:
 
   GET  /health   -> readiness / connection test
@@ -42,8 +42,8 @@ _gpu_lock = asyncio.Lock()  # serialize GPU access (single device, one caption a
 # --- excitement_score heuristic (v1) -------------------------------------------
 # Marlin produces no score, so we infer a rough 1-10 from the event description so
 # exciting clips float to the top of the app's excitement-sorted list. This is a
-# transparent keyword pass; the smarter scoring pass (iteration 2, via the
-# llama-swap text model) replaces it later.
+# transparent keyword pass; a smarter scoring pass (via a text model) could
+# replace it later.
 _HIGH = [
     "flip", "backflip", "roll", "barrel", "dive", "plunge", "power loop", "loop",
     "split-s", "split s", "gap", "proximity", "skim", "graze", "fast", "rapid",

@@ -1,8 +1,8 @@
 # FPV Move Dictionary — Web Research (Phase 1)
 
-> **Status:** Draft for Marc's review. No code has been written yet.
+> **Status:** Research draft.
 >
-> **Why this doc exists:** Per the plan at `~/.claude/plans/reviewing-updating-clip-prompts-hello-snuggly-kahn.md`, we're refactoring the duplicated/inconsistent FPV move vocabulary across the 4 FPV presets into a single canonical dictionary in `src/constants/fpvMoves.ts`. This doc gathers the canonical definitions from FPV community sources so you can review them as a pilot before we write code.
+> **Why this doc exists:** Background research for refactoring the duplicated/inconsistent FPV move vocabulary across the FPV presets into a single canonical dictionary in `src/constants/fpvMoves.ts`. This doc gathers the canonical definitions from FPV community sources.
 >
 > **What's here:** ~30 candidate moves with one-line canonical definitions, aliases, visual signals from the FPV camera POV, audio cues, common confusions, and cited sources.
 >

@@ -279,7 +279,7 @@ export function useAppSettings(): UseAppSettingsReturn {
       }
 
       // Poll until vLLM reports the new model. ~180s budget covers cold load
-      // + cudagraph warmup on a 4060 Ti (observed ~80-90s in practice).
+      // + cudagraph warmup on a mid-range GPU (observed ~80-90s in practice).
       const deadline = Date.now() + 180_000;
       while (Date.now() < deadline) {
         await new Promise(r => setTimeout(r, 3_000));

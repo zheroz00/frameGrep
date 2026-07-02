@@ -12,8 +12,8 @@ Usage:
   python scripts/marlin_caption.py <video.mp4> [more.mp4 ...] \
       [--find "a backflip" --find "flying through a gap between trees"]
 
-Run inside the `vllm` conda env (transformers 5.9, torch 2.11, torchcodec installed):
-  /home/hank/miniconda/envs/vllm/bin/python scripts/marlin_caption.py ...
+Run inside an env with transformers 5.9, torch 2.11, and torchcodec installed:
+  python scripts/marlin_caption.py ...
 """
 import argparse
 import time
