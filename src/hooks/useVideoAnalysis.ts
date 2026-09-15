@@ -8,6 +8,7 @@ import { renderFpvMoveDictionary } from '../constants/fpvMoves';
 import { AppStatus, ClipSegment, RawClipSegment, VideoQueueItem, QueueItemStatus, AnalysisProvider, VideoMetadata, VideoSource, PresetCategory, GeminiModel, GeminiMediaResolution } from '../types';
 import { createVideoSource, formatTimestamp, normalizeRawClips, parseTimestamp } from '../domain/media';
 import { relinkProjectSources } from '../domain/project';
+import { generateId } from '../utils/ids';
 
 export type AnalysisPhase = UploadPhase | 'analyzing' | 'extracting';
 
@@ -211,7 +212,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     const reservedIds = new Set(videoQueue.map(item => item.source.id));
     const newItems: VideoQueueItem[] = Array.from(files as FileList, (file: File) => {
       let source = createVideoSource(file);
-      if (reservedIds.has(source.id)) source = { ...source, id: `${source.id}-${crypto.randomUUID()}` };
+      if (reservedIds.has(source.id)) source = { ...source, id: `${source.id}-${generateId()}` };
       reservedIds.add(source.id);
       return {
       id: source.id,

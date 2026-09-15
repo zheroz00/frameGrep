@@ -11,6 +11,7 @@ All app data lives in browser localStorage. Active keys:
 | `fpv_app_settings` | Provider config, API keys, model choices, sampling knobs. |
 | `fpv_presets` | Default and custom prompt presets. |
 | `fpv_projects` | Saved analysis sessions. |
+| `fpv_projects_legacy_backup` | Untouched copy of `fpv_projects` taken once, right before the first schema-2 migration rewrite. Never written again. |
 
 Settings auto-save 500ms after every change, so no manual save is required. The Settings modal's
 "Save Settings" button is effectively redundant and is kept only for clarity.
@@ -27,6 +28,18 @@ version rather than mutating the original.
 
 A project stores an analysis session (clips plus metadata) for later reload. Videos themselves are
 not stored and must be re-uploaded.
+
+### Schema migration is lossless by design
+
+`migrateProjectDetailed()` in `src/domain/project.ts` converts any stored shape to schema 2. It
+never drops a clip for a missing source: the clip gets a synthesized legacy source named after its
+file (or `unknown-source`) so relinking can still find it. Clips that cannot be parsed at all are
+returned as `rejections` instead of vanishing.
+
+On load, `useProjects` only rewrites `fpv_projects` when the stored data is actually pre-schema-2,
+stashes the raw value in `fpv_projects_legacy_backup` first, and skips the rewrite entirely if any
+clip was rejected (the console warning lists them). Already-migrated data is never rewritten on
+load.
 
 ## Auto-backup and folder linking
 

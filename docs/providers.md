@@ -65,11 +65,16 @@ Bedrock otherwise substitutes a non-vision Haiku.
 
 ### Adaptive frame extraction (`localVLMService.ts`)
 
-Frame budget:
-- **Cloud VLMs:** 200 frames (Qwen3-VL on OpenRouter handles roughly 256K context).
-- **Local vLLM:** derived from a token budget rather than hardcoded, so it cannot overflow context:
-  `floor((LOCAL_CONTEXT_TOKENS - LOCAL_MAX_OUTPUT_TOKENS - LOCAL_PROMPT_RESERVE) / LOCAL_EST_TOKENS_PER_FRAME)`,
-  which is about 50 frames at 32K context.
+Frame budget is derived from a token budget for both endpoint types (`framesForContext()`):
+`floor((context - output reserve - PROMPT_RESERVE) / tokens per frame)`.
+
+- **Cloud VLMs (OpenRouter):** context comes from the OpenRouter models API for the selected
+  model; if unknown, 128K is assumed. Frames are sent at 720p, which costs about 945 tokens each,
+  and the output reserve is 16K. A 128K model therefore gets about 119 frames, and any model is
+  capped at 200 frames as a cost ceiling. (Before 2026-09-15 the cloud path used the 512p local
+  per-frame cost and a fixed 200 frames, which overflowed any model under 256K.)
+- **Local vLLM:** 512p frames at about 500 tokens each with a 6K output reserve, which is about 50
+  frames at 32K context.
 
 > **Keep `LOCAL_CONTEXT_TOKENS` (in `localVLMService.ts`) in sync with `VLLM_MAX_LEN` in
 > `.env.local`.** A previous hardcoded "60 frames at 65K" assumption blew past a 32K vLLM

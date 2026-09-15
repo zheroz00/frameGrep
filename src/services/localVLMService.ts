@@ -14,9 +14,18 @@ export interface LocalVLMConfig {
 export type FrameExtractionProgress = (current: number, total: number) => void;
 
 // ── Frame budget ────────────────────────────────────────────────────────────
-// Cloud APIs (OpenRouter): huge context windows handle many high-res frames.
-const DEFAULT_MAX_FRAMES = 200;          // cloud: Qwen3-VL 256K ctx handles ~200 frames comfortably
-const CLOUD_MAX_OUTPUT_TOKENS = 16384;   // reasoning headroom is cheap at 256K ctx
+// Both endpoint types derive their frame budget from a token budget:
+//   frames = (context - output reserve - prompt reserve) / tokens per frame
+// The per-frame cost differs because cloud frames are sent at 720p and local frames at
+// 512p, and cloud gets a larger output reserve for reasoning models.
+const PROMPT_RESERVE = 1500;             // system instruction + move dictionary + frame list
+
+// Cloud (OpenRouter). The model's context comes from the OpenRouter models API; when it
+// is unknown, assume a 128K window rather than the 256K of the largest Qwen3-VL.
+const CLOUD_MAX_OUTPUT_TOKENS = 16384;   // reasoning headroom
+const CLOUD_EST_TOKENS_PER_FRAME = 945;  // 1280x720 Qwen3-VL image (empirical)
+const CLOUD_ASSUMED_CONTEXT_TOKENS = 131072;
+const CLOUD_MAX_FRAMES = 200;            // cost ceiling even when the context could fit more
 
 // Local vLLM (Qwen3-VL-8B). Context is small, so the frame budget is DERIVED from a
 // token budget rather than hardcoded — this is what previously drifted: a fixed "60
@@ -24,12 +33,16 @@ const CLOUD_MAX_OUTPUT_TOKENS = 16384;   // reasoning headroom is cheap at 256K 
 // Keep LOCAL_CONTEXT_TOKENS in sync with VLLM_MAX_LEN in .env.local.
 const LOCAL_CONTEXT_TOKENS = 32768;
 const LOCAL_MAX_OUTPUT_TOKENS = 6144;    // room for the JSON clip array (thinking is disabled)
-const LOCAL_PROMPT_RESERVE = 1500;       // system instruction + move dictionary + frame list
 const LOCAL_EST_TOKENS_PER_FRAME = 500;  // ~512p Qwen3-VL image (empirical: ~945 tok @ 720p → ~470 @ 512p)
-// Frames that fit the local context with headroom for prompt + generated output.
-const LOCAL_MODEL_MAX_FRAMES = Math.floor(
-  (LOCAL_CONTEXT_TOKENS - LOCAL_MAX_OUTPUT_TOKENS - LOCAL_PROMPT_RESERVE) / LOCAL_EST_TOKENS_PER_FRAME
-);
+
+/** Frames that fit `contextTokens` with headroom for the prompt and the generated output. */
+export const framesForContext = (contextTokens: number, isLocal: boolean): number => {
+  const outputReserve = isLocal ? LOCAL_MAX_OUTPUT_TOKENS : CLOUD_MAX_OUTPUT_TOKENS;
+  const tokensPerFrame = isLocal ? LOCAL_EST_TOKENS_PER_FRAME : CLOUD_EST_TOKENS_PER_FRAME;
+  return Math.max(1, Math.floor((contextTokens - outputReserve - PROMPT_RESERVE) / tokensPerFrame));
+};
+
+const LOCAL_MODEL_MAX_FRAMES = framesForContext(LOCAL_CONTEXT_TOKENS, true);
 
 // Per-frame resolution ceilings. Local uses smaller frames so more of them fit the
 // 32K window — temporal coverage beats per-frame sharpness for spotting FPV action.
@@ -74,13 +87,15 @@ export const calculateAdaptiveFps = (durationSeconds: number, maxFrames: number)
  * Get appropriate max frames based on endpoint type
  */
 export const getMaxFrames = (config: LocalVLMConfig): number => {
-  // Priority: config override > env var > endpoint-based default
+  // Priority: config override > env var > budget derived from the model's context
   if (config.maxFrames) return config.maxFrames;
   if (ENV_MAX_FRAMES && !isNaN(ENV_MAX_FRAMES)) return ENV_MAX_FRAMES;
-  if (config.contextLength && config.contextLength > LOCAL_MAX_OUTPUT_TOKENS + LOCAL_PROMPT_RESERVE) {
-    return Math.max(1, Math.floor((config.contextLength - LOCAL_MAX_OUTPUT_TOKENS - LOCAL_PROMPT_RESERVE) / LOCAL_EST_TOKENS_PER_FRAME));
-  }
-  return isLocalEndpoint(config.endpoint) ? LOCAL_MODEL_MAX_FRAMES : DEFAULT_MAX_FRAMES;
+  const isLocal = isLocalEndpoint(config.endpoint);
+  const contextTokens = Number.isFinite(config.contextLength) && Number(config.contextLength) > 0
+    ? Number(config.contextLength)
+    : (isLocal ? LOCAL_CONTEXT_TOKENS : CLOUD_ASSUMED_CONTEXT_TOKENS);
+  const budget = framesForContext(contextTokens, isLocal);
+  return isLocal ? budget : Math.min(CLOUD_MAX_FRAMES, budget);
 };
 
 /**

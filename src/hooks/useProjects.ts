@@ -1,9 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Project, ClipSegment, AnalysisProvider, SelectedMusicTrack, VideoSource } from '../types';
-import { migrateProject } from '../domain/project';
+import { migrateProject, migrateProjectDetailed, needsProjectMigration } from '../domain/project';
 import { loadWorkspaceDirectory, subscribeWorkspaceDirectory } from '../services/workspaceDirectory';
+import { generateId } from '../utils/ids';
 
 const STORAGE_KEY = 'fpv_projects';
+/** Untouched copy of the pre-schema-2 projects array, written once before the first migration rewrite. */
+const LEGACY_BACKUP_KEY = 'fpv_projects_legacy_backup';
 const AUTO_BACKUP_KEY = 'fpv_projects_auto_backup';
 const LAST_BACKUP_KEY = 'fpv_projects_last_backup';
 
@@ -21,10 +24,6 @@ const safeLocalStorageSet = (key: string, value: string): boolean => {
 };
 
 /** Generate unique project ID */
-const generateId = (): string => {
-  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-};
-
 /** Generate default project name from filenames */
 const generateProjectName = (filenames: string[]): string => {
   if (filenames.length === 0) return 'Untitled Project';
@@ -201,8 +200,20 @@ export function useProjects(): UseProjectsReturn {
     }
     const parsed = JSON.parse(saved);
     if (!Array.isArray(parsed)) throw new Error('Saved projects must be an array');
-    const migrated = parsed.map(migrateProject);
+    const results = parsed.map(migrateProjectDetailed);
+    const migrated = results.map(result => result.project);
     setProjects(migrated);
+
+    // Only rewrite storage when the stored shape is actually old, and never when the
+    // migration had to reject anything: a lossy rewrite is permanent, so keep the raw
+    // data in place (and a one-time untouched copy) until a human has looked at it.
+    if (!parsed.some(needsProjectMigration)) return;
+    if (!localStorage.getItem(LEGACY_BACKUP_KEY)) safeLocalStorageSet(LEGACY_BACKUP_KEY, saved);
+    const rejected = results.flatMap((result, index) => result.rejections.map(rejection => ({ project: migrated[index].name, ...rejection })));
+    if (rejected.length) {
+      console.warn(`Loaded ${migrated.length} project(s) but left localStorage unmigrated: ${rejected.length} stored clip(s) could not be converted.`, rejected);
+      return;
+    }
     safeLocalStorageSet(STORAGE_KEY, JSON.stringify(migrated));
   }, []);
 
