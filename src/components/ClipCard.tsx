@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Play, Copy, Check, Film, Sun, Cloud, Sunset, Moon, Sparkles, Waves, ArrowRight, Trash2, Zap, Activity, Battery, MessageCircle, Music } from 'lucide-react';
 import { ClipSegment, ClipMood, LightingCondition, SectionType, EnergyLevel, EditRecommendation } from '../types';
+import { formatTimestamp } from '../domain/media';
 
 // Mood badge styling
 const MOOD_CONFIG: Record<ClipMood, { label: string; class: string }> = {
@@ -99,13 +100,8 @@ const ClipCard: React.FC<ClipCardProps> = ({ clip, index, onPlay, onCaption, onM
   };
 
   const copyCommand = () => {
-    const parts = clip.start_time.split(':').map(Number);
-    const startSec = parts[0] * 60 + parts[1];
-    const endParts = clip.end_time.split(':').map(Number);
-    const dur = (endParts[0] * 60 + endParts[1]) - startSec;
-
     const safeFilename = escapeShellFilename(filename);
-    const cmd = `ffmpeg -ss ${startSec} -i "${safeFilename}" -t ${dur} -c copy "highlight_${index + 1}.mp4"`;
+    const cmd = `ffmpeg -ss ${clip.startSeconds.toFixed(3)} -to ${clip.endSeconds.toFixed(3)} -i "${safeFilename}" -c:v libx264 -c:a aac "highlight_${index + 1}.mp4"`;
     navigator.clipboard.writeText(cmd);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -114,7 +110,7 @@ const ClipCard: React.FC<ClipCardProps> = ({ clip, index, onPlay, onCaption, onM
   // Border color based on section type (dead_time gets red border)
   const getSectionBorderClass = () => {
     if (isActive) return 'border-amber-500 bg-amber-500/5';
-    if (clip.section_type === 'dead_time') return 'border-red-500/30 bg-red-500/5 hover:border-red-500/50';
+    if (clip.sectionType === 'dead_time') return 'border-red-500/30 bg-red-500/5 hover:border-red-500/50';
     return 'border-zinc-800 hover:border-zinc-700 bg-zinc-900';
   };
 
@@ -123,36 +119,36 @@ const ClipCard: React.FC<ClipCardProps> = ({ clip, index, onPlay, onCaption, onM
       <div className="flex justify-between items-start">
         <div className="flex items-center gap-2">
           <span className="text-xs font-mono text-zinc-500">#{String(index + 1).padStart(2, '0')}</span>
-          <span className={`text-xs font-bold px-2 py-0.5 rounded border ${getScoreColor(clip.excitement_score)}`}>
-            SCORE: {clip.excitement_score}
+          <span className={`text-xs font-bold px-2 py-0.5 rounded border ${getScoreColor(clip.excitementScore)}`}>
+            SCORE: {clip.excitementScore}
           </span>
         </div>
         <div className="text-xs font-mono text-zinc-400">
-          {clip.start_time} - {clip.end_time}
+          {formatTimestamp(clip.startSeconds)} - {formatTimestamp(clip.endSeconds)}
         </div>
       </div>
 
       {/* Source file badge for multi-video */}
-      {showSource && clip.sourceFile && (
+      {showSource && (
         <div className="flex items-center gap-1.5 text-[10px] text-zinc-500">
           <Film size={10} />
-          <span className="truncate">{clip.sourceFile}</span>
+          <span className="truncate">{filename}</span>
         </div>
       )}
 
       {/* Smart Edit Roadmap: Section type / Energy / Recommendation row */}
-      {(clip.section_type || clip.energy_level || clip.recommendation) && (
+      {(clip.sectionType || clip.energyLevel || clip.recommendation) && (
         <div className="flex items-center gap-2 flex-wrap">
-          {clip.section_type && (
-            <span className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border font-medium ${SECTION_TYPE_CONFIG[clip.section_type].class}`}>
-              {SECTION_TYPE_CONFIG[clip.section_type].icon}
-              {SECTION_TYPE_CONFIG[clip.section_type].label}
+          {clip.sectionType && (
+            <span className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border font-medium ${SECTION_TYPE_CONFIG[clip.sectionType].class}`}>
+              {SECTION_TYPE_CONFIG[clip.sectionType].icon}
+              {SECTION_TYPE_CONFIG[clip.sectionType].label}
             </span>
           )}
-          {clip.energy_level && (
-            <span className="flex items-center gap-1 text-[10px] text-zinc-500" title={`Energy: ${clip.energy_level}`}>
-              {ENERGY_ICONS[clip.energy_level]}
-              <span className="capitalize">{clip.energy_level}</span>
+          {clip.energyLevel && (
+            <span className="flex items-center gap-1 text-[10px] text-zinc-500" title={`Energy: ${clip.energyLevel}`}>
+              {ENERGY_ICONS[clip.energyLevel]}
+              <span className="capitalize">{clip.energyLevel}</span>
             </span>
           )}
           {clip.recommendation && (
@@ -160,16 +156,16 @@ const ClipCard: React.FC<ClipCardProps> = ({ clip, index, onPlay, onCaption, onM
               {RECOMMENDATION_CONFIG[clip.recommendation].label}
             </span>
           )}
-          {clip.transition_note && (
-            <span className="text-[10px] text-zinc-500 italic" title={clip.transition_note}>
-              "{clip.transition_note}"
+          {clip.transitionNote && (
+            <span className="text-[10px] text-zinc-500 italic" title={clip.transitionNote}>
+              "{clip.transitionNote}"
             </span>
           )}
         </div>
       )}
 
       {/* Mood / Lighting / Colors row */}
-      {(clip.mood || clip.lighting || clip.dominant_colors?.length) && (
+      {(clip.mood || clip.lighting || clip.dominantColors?.length) && (
         <div className="flex items-center gap-2 flex-wrap">
           {clip.mood && (
             <span className={`text-[10px] px-1.5 py-0.5 rounded border ${MOOD_CONFIG[clip.mood].class}`}>
@@ -181,9 +177,9 @@ const ClipCard: React.FC<ClipCardProps> = ({ clip, index, onPlay, onCaption, onM
               {LIGHTING_ICONS[clip.lighting]}
             </span>
           )}
-          {clip.dominant_colors && clip.dominant_colors.length > 0 && (
-            <div className="flex items-center gap-1" title={clip.dominant_colors.join(', ')}>
-              {clip.dominant_colors.slice(0, 3).map((color, i) => (
+          {clip.dominantColors && clip.dominantColors.length > 0 && (
+            <div className="flex items-center gap-1" title={clip.dominantColors.join(', ')}>
+              {clip.dominantColors.slice(0, 3).map((color, i) => (
                 <span
                   key={i}
                   className={`w-2.5 h-2.5 rounded-full border border-zinc-700 ${getColorDotClass(color)}`}

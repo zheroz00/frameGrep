@@ -5,24 +5,20 @@ import { analyzeVideoMarlin, findInVideoMarlin, MarlinFindResult, MarlinFindOpti
 import { extractVideoMetadata } from '../services/mediaInfoService';
 import { shouldTranscode, transcodeVideo } from '../services/transcodeService';
 import { renderFpvMoveDictionary } from '../constants/fpvMoves';
-import { AppStatus, ClipSegment, VideoQueueItem, QueueItemStatus, AnalysisProvider, VideoMetadata, PresetCategory, GeminiModel, GeminiMediaResolution } from '../types';
+import { AppStatus, ClipSegment, RawClipSegment, VideoQueueItem, QueueItemStatus, AnalysisProvider, VideoMetadata, VideoSource, PresetCategory, GeminiModel, GeminiMediaResolution } from '../types';
+import { createVideoSource, formatTimestamp, normalizeRawClips, parseTimestamp } from '../domain/media';
+import { relinkProjectSources } from '../domain/project';
 
 export type AnalysisPhase = UploadPhase | 'analyzing' | 'extracting';
 
 /** Parses MM:SS or HH:MM:SS to seconds */
 export const parseTime = (timeStr: string): number => {
-  if (!timeStr || typeof timeStr !== 'string') return 0;
-  const parts = timeStr.split(':').map(Number);
-  if (parts.some(isNaN)) return 0;
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  return 0;
+  return parseTimestamp(timeStr) ?? 0;
 };
 
 /** Formats seconds to "MM:SS" (inverse of parseTime, for spans returned in seconds). */
 export const secondsToMmss = (seconds: number): string => {
-  const s = Math.max(0, Math.round(seconds));
-  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  return formatTimestamp(seconds);
 };
 
 /**
@@ -31,13 +27,6 @@ export const secondsToMmss = (seconds: number): string => {
  * back to the original upload URL when there's no proxy (e.g. frame-extraction path).
  */
 const previewUrlFor = (item: VideoQueueItem): string => item.transcodedUrl || item.url;
-
-/** Validates clip has valid start/end times */
-const isValidClip = (clip: ClipSegment): boolean => {
-  const start = parseTime(clip.start_time);
-  const end = parseTime(clip.end_time);
-  return end > start && start >= 0;
-};
 
 /** Parse error message and provide user-friendly suggestions */
 const formatErrorMessage = (error: string, provider: AnalysisProvider): string => {
@@ -120,6 +109,8 @@ export interface UseVideoAnalysisReturn {
   // Actions
   handleFilesUpload: (e: ChangeEvent<HTMLInputElement>) => void;
   removeFromQueue: (id: string) => void;
+  retryItem: (id: string) => void;
+  cancelAnalysis: () => void;
   clearQueue: () => void;
   runAnalysis: (
     provider: AnalysisProvider,
@@ -152,7 +143,7 @@ export interface UseVideoAnalysisReturn {
   removeClipAt: (globalIndex: number) => void;
 
   setError: (error: string | null) => void;
-  loadClipsFromProject: (clips: ClipSegment[], videoFilenames: string[]) => void;
+  loadClipsFromProject: (clips: ClipSegment[], sources: VideoSource[]) => void;
   relinkVideos: (files: FileList | File[]) => Promise<number>;
 }
 
@@ -168,6 +159,8 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
   const [processingProgress, setProcessingProgress] = useState({ attempt: 0, maxAttempts: 150 });
   const [queueProgress, setQueueProgress] = useState({ current: 0, total: 0 });
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const queueRef = useRef<VideoQueueItem[]>([]);
 
   // Playback state
   const [activeVideoUrl, setActiveVideoUrl] = useState<string | null>(null);
@@ -191,6 +184,8 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
   // Combine all clips from queue
   const allClips = videoQueue.flatMap(item => item.clips);
 
+  useEffect(() => { queueRef.current = videoQueue; }, [videoQueue]);
+
   // Check if any videos need relinking (loaded from project but no actual file)
   const missingVideos = videoQueue
     .filter(item => !item.url && item.file.size === 0)
@@ -200,7 +195,9 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
   // Cleanup blob URLs on unmount
   useEffect(() => {
     return () => {
-      videoQueue.forEach(item => {
+      abortControllerRef.current?.abort();
+      if (timerRef.current) clearInterval(timerRef.current);
+      queueRef.current.forEach(item => {
         if (item.url) URL.revokeObjectURL(item.url);
         if (item.transcodedUrl) URL.revokeObjectURL(item.transcodedUrl);
       });
@@ -211,13 +208,19 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    const newItems: VideoQueueItem[] = Array.from(files as FileList, (file: File) => ({
-      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    const reservedIds = new Set(videoQueue.map(item => item.source.id));
+    const newItems: VideoQueueItem[] = Array.from(files as FileList, (file: File) => {
+      let source = createVideoSource(file);
+      if (reservedIds.has(source.id)) source = { ...source, id: `${source.id}-${crypto.randomUUID()}` };
+      reservedIds.add(source.id);
+      return {
+      id: source.id,
+      source,
       file,
       url: URL.createObjectURL(file),
       status: 'pending' as QueueItemStatus,
       clips: [],
-    }));
+    }});
 
     setVideoQueue(prev => [...prev, ...newItems]);
     setStatus(AppStatus.IDLE);
@@ -237,13 +240,13 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
       try {
         const metadata = await extractVideoMetadata(item.file);
         setVideoQueue(prev => prev.map(qItem =>
-          qItem.id === item.id ? { ...qItem, metadata } : qItem
+          qItem.id === item.id ? { ...qItem, metadata, source: { ...qItem.source, metadata } } : qItem
         ));
       } catch (err) {
         console.warn(`Failed to extract metadata for ${item.file.name}:`, err);
       }
     }
-  }, [activeVideoUrl]);
+  }, [activeVideoUrl, videoQueue]);
 
   const removeFromQueue = useCallback((id: string) => {
     setVideoQueue(prev => {
@@ -284,6 +287,16 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     ));
   }, []);
 
+  const retryItem = useCallback((id: string) => {
+    updateQueueItem(id, { status: 'pending', error: undefined, clips: [] });
+    setError(null);
+    setStatus(AppStatus.IDLE);
+  }, [updateQueueItem]);
+
+  const cancelAnalysis = useCallback(() => {
+    abortControllerRef.current?.abort(new DOMException('Analysis cancelled', 'AbortError'));
+  }, []);
+
   const runAnalysis = async (
     provider: AnalysisProvider,
     apiKey: string,
@@ -322,6 +335,9 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     setElapsedTime(0);
     setPhaseDetail(null);
     setQueueProgress({ current: 0, total: pendingItems.length });
+    const controller = new AbortController();
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = controller;
 
     // Start elapsed time timer
     const startTime = Date.now();
@@ -338,7 +354,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
         setQueueProgress({ current: i + 1, total: pendingItems.length });
 
         try {
-          let result: ClipSegment[];
+          let result: RawClipSegment[];
 
           if (provider === 'marlin') {
             // Local Marlin-2B server. Caption-mode only — `finalInstruction` (preset +
@@ -358,6 +374,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
                   updateQueueItem(item.id, { status: 'analyzing' });
                 }
               },
+              controller.signal,
             );
           } else if (provider === 'custom' && localConfig) {
             if (localConfig.useNativeVideo) {
@@ -382,8 +399,10 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
                   // Keep the 480p proxy for smooth preview playback (the 4K/100fps
                   // original stutters when the browser software-decodes + seeks it).
                   const proxyUrl = URL.createObjectURL(proxyFile);
+                  if (item.transcodedUrl) URL.revokeObjectURL(item.transcodedUrl);
                   updateQueueItem(item.id, { transcodedUrl: proxyUrl, transcodedSize: proxyFile.size });
                 },
+                controller.signal,
               );
             } else {
               // Frame extraction path — OpenRouter/Ollama/vLLM API call
@@ -401,7 +420,8 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
                   if (phase === 'analyzing') {
                     updateQueueItem(item.id, { status: 'analyzing' });
                   }
-                }
+                },
+                controller.signal,
               );
             }
           } else {
@@ -413,13 +433,13 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
               console.log(`Transcoding ${item.file.name}: ${decision.reason}`);
               updateQueueItem(item.id, { status: 'preparing' });
               setUploadPhase('preparing');
-              setPhaseDetail('NVENC transcoding — connecting...');
+              setPhaseDetail('Transcoding for analysis — connecting...');
               setProcessingProgress({ attempt: 0, maxAttempts: 100 });
 
               fileToUpload = await transcodeVideo(item.file, (progress) => {
                 const receivedMB = progress.receivedBytes / 1_048_576;
                 setPhaseDetail(
-                  `NVENC transcoding — ${receivedMB.toFixed(1)} MB received`
+                  `Transcoding for analysis — ${receivedMB.toFixed(1)} MB received`
                 );
                 // Drive the progress bar from received/input bytes, capped at 95%
                 // (output is usually smaller than input, so we never hit 100% here).
@@ -430,11 +450,12 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
                   );
                   setProcessingProgress({ attempt: pct, maxAttempts: 100 });
                 }
-              });
+              }, controller.signal);
 
               // Surface the transcoded file in the queue UI so the user can
               // inspect what's actually being sent to Gemini (quality, duration, frame rate).
               const transcodedUrl = URL.createObjectURL(fileToUpload);
+              if (item.transcodedUrl) URL.revokeObjectURL(item.transcodedUrl);
               updateQueueItem(item.id, { transcodedUrl, transcodedSize: fileToUpload.size });
             }
 
@@ -460,7 +481,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
               if (detail?.attempt !== undefined) {
                 setProcessingProgress({ attempt: detail.attempt, maxAttempts: detail.maxAttempts || 150 });
               }
-            });
+            }, controller.signal);
 
             updateQueueItem(item.id, { status: 'analyzing' });
             setUploadPhase('analyzing');
@@ -468,20 +489,25 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
 
             // Use the transcoded file's mime type if we transcoded (mp4); otherwise the original.
             const uploadedMime = fileToUpload.type || item.file.type;
-            result = await analyzeVideo(apiKey, fileUri, uploadedMime, finalInstruction, geminiModel, geminiMediaResolution, geminiFps);
+            result = await analyzeVideo(apiKey, fileUri, uploadedMime, finalInstruction, geminiModel, geminiMediaResolution, geminiFps, controller.signal);
           }
 
-          // Add sourceFile to each clip and filter invalid ones
-          const clipsWithSource = result
-            .filter(isValidClip)
-            .map(clip => ({
-              ...clip,
-              sourceFile: item.file.name,
-            }));
+          const normalized = normalizeRawClips(result, {
+            sourceId: item.source.id,
+            duration: item.metadata?.duration || item.source.metadata.duration,
+            idFactory: index => `${item.source.id}-clip-${index}`,
+          });
+          if (normalized.rejections.length) {
+            console.warn(`Rejected ${normalized.rejections.length} invalid model clip(s) for ${item.file.name}`, normalized.rejections);
+          }
 
-          updateQueueItem(item.id, { status: 'complete', clips: clipsWithSource });
+          updateQueueItem(item.id, { status: 'complete', clips: normalized.clips });
 
         } catch (e: unknown) {
+          if (controller.signal.aborted) {
+            updateQueueItem(item.id, { status: 'cancelled', error: 'Cancelled' });
+            break;
+          }
           const rawMessage = e instanceof Error ? e.message : 'Analysis failed';
           const message = formatErrorMessage(rawMessage, provider);
           updateQueueItem(item.id, { status: 'error', error: message });
@@ -490,7 +516,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
         }
       }
 
-      setStatus(AppStatus.COMPLETE);
+      setStatus(controller.signal.aborted ? AppStatus.IDLE : AppStatus.COMPLETE);
       setPhaseDetail(null);
     } catch (e: unknown) {
       const rawMessage = e instanceof Error ? e.message : 'Analysis failed';
@@ -501,19 +527,20 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
         clearInterval(timerRef.current);
         timerRef.current = null;
       }
+      if (abortControllerRef.current === controller) abortControllerRef.current = null;
     }
   };
 
   const handlePlayClip = useCallback((clip: ClipSegment, index: number) => {
     // Find the video that contains this clip
-    const sourceItem = videoQueue.find(item => item.file.name === clip.sourceFile);
+    const sourceItem = videoQueue.find(item => item.source.id === clip.sourceId);
     if (sourceItem) {
       setActiveVideoUrl(previewUrlFor(sourceItem));
       setActiveVideoName(sourceItem.file.name);
     }
 
-    setCurrentStart(parseTime(clip.start_time));
-    setCurrentEnd(parseTime(clip.end_time));
+    setCurrentStart(clip.startSeconds);
+    setCurrentEnd(clip.endSeconds);
     setActiveClipIndex(index);
   }, [videoQueue]);
 
@@ -582,19 +609,20 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     if (!target) return;
 
     const newClip: ClipSegment = {
-      start_time: secondsToMmss(span[0]),
-      end_time: secondsToMmss(span[1]),
+      id: `${target.source.id}-marlin-${Date.now()}`,
+      sourceId: target.source.id,
+      startSeconds: span[0],
+      endSeconds: span[1],
       description: query,
-      excitement_score: 5, // neutral placeholder — find does no scoring
-      sourceFile: target.file.name,
+      excitementScore: 5, // neutral placeholder — find does no scoring
       reasoning: `Added from Marlin search: "${query}"`,
     };
 
     // Dedupe: skip if an identical clip already exists on this item.
     const isDuplicate = target.clips.some(
       c =>
-        c.start_time === newClip.start_time &&
-        c.end_time === newClip.end_time &&
+        c.startSeconds === newClip.startSeconds &&
+        c.endSeconds === newClip.endSeconds &&
         c.description === newClip.description,
     );
     if (!isDuplicate) {
@@ -619,21 +647,21 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     }
   }, [videoQueue, updateQueueItem]);
 
-  const loadClipsFromProject = useCallback((clips: ClipSegment[], videoFilenames: string[]) => {
+  const loadClipsFromProject = useCallback((clips: ClipSegment[], sources: VideoSource[]) => {
     // Clear existing queue
     videoQueue.forEach(item => {
       if (item.url) URL.revokeObjectURL(item.url);
       if (item.transcodedUrl) URL.revokeObjectURL(item.transcodedUrl);
     });
 
-    // Create placeholder queue items for each video (no actual files)
-    // Group clips by their sourceFile
-    const loadedItems: VideoQueueItem[] = videoFilenames.map(filename => ({
-      id: `loaded-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      file: new File([], filename), // Placeholder file with just the name
+    const loadedItems: VideoQueueItem[] = sources.map(source => ({
+      id: source.id,
+      source,
+      file: new File([], source.filename, { lastModified: source.lastModified }),
       url: '', // No video URL available
       status: 'complete' as QueueItemStatus, // Already "analyzed"
-      clips: clips.filter(c => c.sourceFile === filename),
+      clips: clips.filter(c => c.sourceId === source.id),
+      metadata: source.metadata,
     }));
 
     setVideoQueue(loadedItems);
@@ -650,11 +678,14 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     let firstLinkedUrl: string | null = null;
     let firstLinkedName: string | null = null;
 
-    // Try to match each uploaded file to a placeholder queue item by filename
-    for (const file of fileArray) {
-      const matchingItem = videoQueue.find(
-        item => item.file.name === file.name && item.file.size === 0
-      );
+    const placeholders = videoQueue.filter(item => item.file.size === 0).map(item => item.source);
+    const relink = relinkProjectSources(placeholders, fileArray);
+    if (relink.ambiguousSourceIds.length) {
+      setError('Duplicate legacy filenames are ambiguous. Rename the files uniquely, then select them again to confirm the mapping.');
+    }
+
+    for (const [sourceId, file] of relink.matches) {
+      const matchingItem = videoQueue.find(item => item.source.id === sourceId && item.file.size === 0);
 
       if (matchingItem) {
         const url = URL.createObjectURL(file);
@@ -670,7 +701,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
         // Update the queue item with the real file
         setVideoQueue(prev => prev.map(item =>
           item.id === matchingItem.id
-            ? { ...item, file, url, metadata }
+            ? { ...item, file, url, metadata, source: { ...item.source, fingerprint: createVideoSource(file, metadata).fingerprint, size: file.size, lastModified: file.lastModified, metadata: metadata ?? item.source.metadata, legacy: false } }
             : item
         ));
 
@@ -712,6 +743,8 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     missingVideos,
     handleFilesUpload,
     removeFromQueue,
+    retryItem,
+    cancelAnalysis,
     clearQueue,
     runAnalysis,
     handlePlayClip,

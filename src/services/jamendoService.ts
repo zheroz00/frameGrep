@@ -178,10 +178,10 @@ export function generateMusicSuggestion(clips: ClipSegment[]): MusicSuggestion {
     if (clip.mood) {
       moodCounts[clip.mood] = (moodCounts[clip.mood] || 0) + 1;
     }
-    if (clip.energy_level) {
-      energyCounts[clip.energy_level] = (energyCounts[clip.energy_level] || 0) + 1;
+    if (clip.energyLevel) {
+      energyCounts[clip.energyLevel] = (energyCounts[clip.energyLevel] || 0) + 1;
     }
-    totalExcitement += clip.excitement_score || 5;
+    totalExcitement += clip.excitementScore || 5;
   });
 
   // Find dominant mood

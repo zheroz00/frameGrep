@@ -1,480 +1,145 @@
-import { ClipSegment, PromptPreset, ExportMode, SocialCaptions, VideoMetadata } from "../types";
+import type { ExportMode, Project, PromptPreset, SocialCaptions, VideoSource, ClipSegment } from '../types';
+import { DEFAULT_PRESETS } from '../constants/defaultPresets';
+import { createPresetState, parsePresetBackup, type PresetStateV2 } from '../domain/presets';
+import { migrateProject } from '../domain/project';
+import {
+  filterClipsForExport,
+  generateEDL,
+  generateFCPXML,
+  generateFFmpegScript,
+  getEDLCompatibility,
+  getSourceIdentityIssue,
+  type EDLCompatibility,
+  type FCPXMLOptions,
+} from './exportCore';
 
-const parseTimeToSeconds = (timeStr: string): number => {
-  const parts = timeStr.split(':').map(Number);
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  return 0;
-};
+export { filterClipsForExport, generateEDL, generateFCPXML, generateFFmpegScript, getEDLCompatibility, getSourceIdentityIssue };
+export type { EDLCompatibility, FCPXMLOptions };
 
-const formatSecondsToSMPTE = (seconds: number, fps: number = 30): string => {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  const f = Math.floor((seconds % 1) * fps); // Frame field at the timeline's real fps
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}:${String(f).padStart(2, '0')}`;
-};
-
-/**
- * Generates a CMX 3600 EDL string for DaVinci Resolve / Premiere
- * Supports multi-source clips via clip.sourceFile.
- * Pass the source fps so sub-second cut points land correctly (defaults to 30).
- */
-export const generateEDL = (filename: string, clips: ClipSegment[], fps: number = 30): string => {
-  let edl = `TITLE: FPV_SUPERCUT\nFCM: NON-DROP FRAME\n\n`;
-  let timelineCursor = 0;
-  clips.forEach((clip, index) => {
-    const startSec = parseTimeToSeconds(clip.start_time);
-    const endSec = parseTimeToSeconds(clip.end_time);
-    const duration = endSec - startSec;
-    const clipStart = formatSecondsToSMPTE(startSec, fps);
-    const clipEnd = formatSecondsToSMPTE(endSec, fps);
-    const timelineStart = formatSecondsToSMPTE(timelineCursor, fps);
-    const timelineEnd = formatSecondsToSMPTE(timelineCursor + duration, fps);
-    const idx = String(index + 1).padStart(3, '0');
-    const sourceFile = clip.sourceFile || filename;
-    edl += `${idx}  AX       V     C        ${clipStart} ${clipEnd} ${timelineStart} ${timelineEnd}\n`;
-    edl += `* FROM CLIP NAME: ${sourceFile}\n`;
-    edl += `* COMMENT: ${clip.description}\n\n`;
-    timelineCursor += duration;
-  });
-  return edl;
-};
-
-/**
- * Escapes shell special characters in filenames
- */
-const escapeShellArg = (str: string, isWin: boolean): string => {
-  if (isWin) {
-    // Windows CMD: escape special chars with ^
-    return str.replace(/([&|<>^%])/g, '^$1');
-  }
-  // Unix: escape shell metacharacters
-  return str.replace(/(["\$`\\])/g, '\\$1');
-};
-
-/**
- * Generates a platform-specific batch script for FFmpeg
- * Supports multi-source clips via clip.sourceFile
- */
-export const generateFFmpegScript = (filename: string, clips: ClipSegment[], platform: 'win' | 'unix'): string => {
-  const isWin = platform === 'win';
-  const sep = isWin ? '\\' : '/';
-
-  let script = isWin ? "@echo off\n" : "#!/bin/bash\n";
-  script += isWin ? "mkdir segments 2>nul\n" : "mkdir -p segments\n";
-  script += isWin ? "del /q filelist.txt 2>nul\n" : "rm -f filelist.txt\n";
-  script += "\n# Extract each clip segment\n";
-
-  clips.forEach((clip, index) => {
-    const start = parseTimeToSeconds(clip.start_time);
-    const end = parseTimeToSeconds(clip.end_time);
-    const duration = end - start;
-    if (duration <= 0) return; // Skip invalid clips
-
-    const sourceFile = clip.sourceFile || filename;
-    const escapedSource = escapeShellArg(sourceFile, isWin);
-    const idx = String(index).padStart(3, '0');
-    const outName = `segments${sep}clip_${idx}.mp4`;
-
-    script += `ffmpeg -ss ${start} -i "${escapedSource}" -t ${duration} -c:v copy -c:a copy "${outName}" -y\n`;
-    script += isWin ? `echo file '${outName}' >> filelist.txt\n` : `echo "file '${outName}'" >> filelist.txt\n`;
-  });
-
-  script += "\n# Concatenate all clips\n";
-  script += `ffmpeg -f concat -safe 0 -i filelist.txt -c copy "supercut.mp4"\n`;
-  return script;
-};
-
-/**
- * Converts seconds to FCPXML rational time format (frames/fps)
- * FCPXML uses "numerator/denominator s" format, e.g., "3600/24s" = 150 seconds at 24fps
- */
-const secondsToFCPXMLTime = (seconds: number, fps: number = 24): string => {
-  const frames = Math.round(seconds * fps);
-  return `${frames}/${fps}s`;
-};
-
-/**
- * Escapes special characters for XML attribute values
- */
-const escapeXMLAttr = (str: string): string => {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
-};
-
-/**
- * Builds the media-rep `src` file:// URL for an asset.
- * - No folder  → filename-only `file:///name.mp4` (points at fs root; user relinks in the NLE).
- * - Folder set → absolute `file:///abs/path/name.mp4` so DaVinci auto-links on import.
- * A browser can't read an upload's real path, so the folder is user-supplied (POSIX target;
- * Windows drive letters are best-effort). Path segments are percent-encoded for a valid URL.
- */
-const buildMediaSrc = (filename: string, folder?: string): string => {
-  if (!folder || !folder.trim()) return `file:///${escapeXMLAttr(filename)}`;
-  const f = folder.trim().replace(/\\/g, '/').replace(/\/+$/, ''); // win→posix, strip trailing /
-  const abs = f.startsWith('/') ? f : `/${f}`;                     // ensure leading slash
-  const enc = abs.split('/').map(encodeURIComponent).join('/');    // percent-encode segments
-  return escapeXMLAttr(`file://${enc}/${encodeURIComponent(filename)}`);
-};
-
-/**
- * FCPXML export options
- */
-export interface FCPXMLOptions {
-  audioFilename?: string;    // Optional music track filename
-  metadata?: VideoMetadata;  // Video metadata for fps/resolution (auto-detected)
-  mediaFolder?: string;      // Optional source-video folder path → embeds absolute paths for auto-link
-}
-
-/**
- * Generates FCPXML 1.8 for DaVinci Resolve / Final Cut Pro import.
- * Creates a timeline with all clips in sequence, including markers with descriptions.
- * Uses filenames only for media references (user relinks in NLE).
- * Optionally includes a music track that spans the entire timeline.
- * Uses auto-detected video metadata for fps/resolution when available.
- *
- * Key attributes for DaVinci compatibility:
- * - Assets include start, duration, format for proper media recognition
- * - Asset-clips include format, tcFormat for timeline placement
- */
-export const generateFCPXML = (
-  projectName: string,
-  clips: ClipSegment[],
-  options: FCPXMLOptions = {}
-): string => {
-  const { audioFilename, metadata, mediaFolder } = options;
-
-  // Use detected metadata or sensible defaults
-  const fps = metadata?.fps || 30;
-  const width = metadata?.width || 1920;
-  const height = metadata?.height || 1080;
-  const frameDuration = `100/${fps * 100}s`; // e.g., "100/3000s" for 30fps
-
-  // Collect unique source files and calculate their durations
-  // We need the max end_time for each source to determine asset duration
-  const sourceDurations = new Map<string, number>();
-  clips.forEach(clip => {
-    const sourceFile = clip.sourceFile || 'video.mp4';
-    const endSec = parseTimeToSeconds(clip.end_time);
-    const currentMax = sourceDurations.get(sourceFile) || 0;
-    sourceDurations.set(sourceFile, Math.max(currentMax, endSec));
-  });
-
-  // If we have metadata with full video duration, use that for the primary source
-  // (more accurate than just max clip end time)
-  if (metadata?.duration && metadata.filename) {
-    const currentDuration = sourceDurations.get(metadata.filename) || 0;
-    sourceDurations.set(metadata.filename, Math.max(currentDuration, metadata.duration));
-  } else if (metadata?.duration && sourceDurations.size === 1) {
-    // Single source case - use metadata duration
-    const singleSource = Array.from(sourceDurations.keys())[0];
-    sourceDurations.set(singleSource, metadata.duration);
-  }
-
-  // Create asset map: filename -> asset ID (r2, r3, r4, ...)
-  const assetMap = new Map<string, string>();
-  let assetId = 2; // r1 is reserved for format
-  sourceDurations.forEach((_, file) => {
-    assetMap.set(file, `r${assetId}`);
-    assetId++;
-  });
-
-  // Reserve ID for audio asset if present
-  const audioAssetId = audioFilename ? `r${assetId}` : null;
-
-  // Build resources section - use detected resolution
-  const formatName = height >= 2160 ? `FFVideoFormat4K${fps}` : `FFVideoFormat${height}p${fps}`;
-  let resources = `    <format id="r1" name="${formatName}" frameDuration="${frameDuration}" width="${width}" height="${height}"/>\n`;
-
-  sourceDurations.forEach((duration, file) => {
-    const id = assetMap.get(file)!;
-    const escapedName = escapeXMLAttr(file);
-    // Add 10% buffer to duration to ensure clips don't exceed source bounds
-    const assetDuration = secondsToFCPXMLTime(duration * 1.1, fps);
-    resources += `    <asset id="${id}" name="${escapedName}" start="0s" duration="${assetDuration}" hasVideo="1" hasAudio="1" format="r1">\n`;
-    resources += `      <media-rep kind="original-media" src="${buildMediaSrc(file, mediaFolder)}"/>\n`;
-    resources += `    </asset>\n`;
-  });
-
-  // Add audio asset if present
-  if (audioFilename && audioAssetId) {
-    const escapedAudioName = escapeXMLAttr(audioFilename);
-    // Audio asset - estimate duration from timeline length (calculated later, use placeholder)
-    const audioDuration = secondsToFCPXMLTime(3600, fps); // 1 hour placeholder, will be trimmed
-    resources += `    <asset id="${audioAssetId}" name="${escapedAudioName}" start="0s" duration="${audioDuration}" hasVideo="0" hasAudio="1">\n`;
-    resources += `      <media-rep kind="original-media" src="file:///${escapedAudioName}"/>\n`;
-    resources += `    </asset>\n`;
-  }
-
-  // Build spine with clips
-  // If music track is selected, disable video audio (srcEnable="video") to use music instead
-  const srcEnableAttr = audioFilename ? ' srcEnable="video"' : '';
-  let spine = '';
-  let timelineOffset = 0;
-
-  clips.forEach((clip, index) => {
-    const sourceFile = clip.sourceFile || 'video.mp4';
-    const assetRef = assetMap.get(sourceFile)!;
-
-    const startSec = parseTimeToSeconds(clip.start_time);
-    const endSec = parseTimeToSeconds(clip.end_time);
-    const duration = endSec - startSec;
-
-    if (duration <= 0) return; // Skip invalid clips
-
-    const clipName = escapeXMLAttr(`Clip ${index + 1}`);
-    const offsetTime = secondsToFCPXMLTime(timelineOffset, fps);
-    const startTime = secondsToFCPXMLTime(startSec, fps);
-    const durationTime = secondsToFCPXMLTime(duration, fps);
-    const markerText = escapeXMLAttr(clip.description || `Clip ${index + 1}`);
-
-    spine += `          <asset-clip ref="${assetRef}" offset="${offsetTime}" name="${clipName}" start="${startTime}" duration="${durationTime}" format="r1" tcFormat="NDF"${srcEnableAttr}>\n`;
-    // One-frame marker duration (1/fps s); Resolve can reject zero-duration markers.
-    spine += `            <marker start="0s" duration="1/${fps}s" value="${markerText}"/>\n`;
-    spine += `          </asset-clip>\n`;
-
-    timelineOffset += duration;
-  });
-
-  // Calculate total duration
-  const totalDuration = secondsToFCPXMLTime(timelineOffset, fps);
-  const escapedProjectName = escapeXMLAttr(projectName);
-
-  // Build audio lane if music is selected
-  let audioLane = '';
-  if (audioFilename && audioAssetId) {
-    const escapedAudioName = escapeXMLAttr(audioFilename);
-    // Audio clip spans the entire timeline duration, starting from 0
-    audioLane = `
-          <audio-clip ref="${audioAssetId}" lane="-1" offset="0s" name="${escapedAudioName}" start="0s" duration="${totalDuration}"/>`;
-  }
-
-  // Assemble full FCPXML
-  const fcpxml = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE fcpxml>
-<fcpxml version="1.8">
-  <resources>
-${resources}  </resources>
-  <library>
-    <event name="${escapedProjectName}">
-      <project name="${escapedProjectName}">
-        <sequence format="r1" duration="${totalDuration}" tcStart="0s" tcFormat="NDF">
-          <spine>
-${spine}          </spine>${audioLane}
-        </sequence>
-      </project>
-    </event>
-  </library>
-</fcpxml>`;
-
-  return fcpxml;
-};
-
-/**
- * Generates FCPXML with export mode filtering
- * Optionally includes a music track that spans the entire timeline.
- * Uses auto-detected video metadata for fps/resolution when available.
- */
 export const generateFCPXMLWithMode = (
   projectName: string,
   clips: ClipSegment[],
   mode: ExportMode,
-  options: FCPXMLOptions = {}
-): string => {
-  const filteredClips = filterClipsForExport(clips, mode);
-  return generateFCPXML(projectName, filteredClips, options);
-};
+  options: FCPXMLOptions,
+): string => generateFCPXML(projectName, filterClipsForExport(clips, mode), options);
 
-/**
- * Filters clips based on export mode
- * - highlights_only: Keep clips without section_type OR non-dead_time sections
- * - full_edit: Remove dead_time clips, keep everything else
- */
-export const filterClipsForExport = (
-  clips: ClipSegment[],
-  mode: ExportMode
-): ClipSegment[] => {
-  if (mode === 'highlights_only') {
-    // Original behavior: clips without section_type or highlight/flow types
-    return clips.filter(c =>
-      !c.section_type ||
-      c.section_type === 'highlight' ||
-      c.section_type === 'flow'
-    );
-  }
-
-  // Full edit mode: remove dead_time, keep everything else
-  return clips.filter(c => c.section_type !== 'dead_time');
-};
-
-/**
- * Generates EDL with export mode filtering
- */
 export const generateEDLWithMode = (
-  filename: string,
   clips: ClipSegment[],
+  sources: VideoSource[],
   mode: ExportMode,
-  fps: number = 30
-): string => {
-  const filteredClips = filterClipsForExport(clips, mode);
-  return generateEDL(filename, filteredClips, fps);
-};
+): string => generateEDL(filterClipsForExport(clips, mode), sources);
 
-/**
- * Generates FFmpeg script with export mode filtering
- */
 export const generateFFmpegScriptWithMode = (
-  filename: string,
   clips: ClipSegment[],
+  sources: VideoSource[],
   platform: 'win' | 'unix',
-  mode: ExportMode
-): string => {
-  const filteredClips = filterClipsForExport(clips, mode);
-  return generateFFmpegScript(filename, filteredClips, platform);
-};
+  mode: ExportMode,
+): string => generateFFmpegScript(filterClipsForExport(clips, mode), sources, platform);
 
-/**
- * Exports prompt presets to a JSON file (manual export, dated filename)
- */
-export const exportPresetsToJSON = (presets: PromptPreset[]) => {
-  const data = JSON.stringify(presets, null, 2);
-  const blob = new Blob([data], { type: 'application/json' });
+const downloadBlob = (blob: Blob, filename: string): void => {
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `fpv-presets-${new Date().toISOString().split('T')[0]}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 };
 
-/**
- * Export all app data (presets + projects) as a single JSON file.
- * Excludes settings/API keys for security. (manual export, dated filename)
- */
-export const exportAllAppData = () => {
-  const presetsRaw = localStorage.getItem('fpv_presets');
-  const projectsRaw = localStorage.getItem('fpv_projects');
+export const exportPresetsToJSON = (presets: PromptPreset[]): void => {
+  const state = createPresetState(DEFAULT_PRESETS, presets);
+  downloadBlob(new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' }), `fpv-presets-${new Date().toISOString().split('T')[0]}.json`);
+};
 
-  const bundle = {
-    version: 1,
+interface BackupV2 {
+  schemaVersion: 2;
+  exportedAt: string;
+  presets: PresetStateV2;
+  projects: Project[];
+}
+
+const readStoredPresets = (): PresetStateV2 => {
+  const raw = localStorage.getItem('fpv_presets');
+  if (!raw) return createPresetState(DEFAULT_PRESETS, DEFAULT_PRESETS);
+  const parsed = JSON.parse(raw);
+  return Array.isArray(parsed) ? createPresetState(DEFAULT_PRESETS, parsed) : parsePresetBackup(parsed, DEFAULT_PRESETS);
+};
+
+const readStoredProjects = (): Project[] => {
+  const raw = localStorage.getItem('fpv_projects');
+  if (!raw) return [];
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed)) throw new Error('Stored projects must be an array');
+  return parsed.map(migrateProject);
+};
+
+export const exportAllAppData = (): void => {
+  const bundle: BackupV2 = {
+    schemaVersion: 2,
     exportedAt: new Date().toISOString(),
-    presets: presetsRaw ? JSON.parse(presetsRaw) : [],
-    projects: projectsRaw ? JSON.parse(projectsRaw) : [],
+    presets: readStoredPresets(),
+    projects: readStoredProjects(),
   };
-
-  const data = JSON.stringify(bundle, null, 2);
-  const blob = new Blob([data], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `fpv-all-data-${new Date().toISOString().split('T')[0]}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadBlob(new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' }), `fpv-all-data-${new Date().toISOString().split('T')[0]}.json`);
 };
 
-/** Helper to detect if an array contains presets (has 'instruction' field) */
-const isPresetsArray = (arr: unknown[]): arr is PromptPreset[] => {
-  return arr.length > 0 && typeof (arr[0] as PromptPreset).instruction === 'string';
+const parseImport = (parsed: unknown): { presets?: PresetStateV2; projects?: Project[] } => {
+  if (Array.isArray(parsed)) {
+    if (!parsed.length) throw new Error('Empty backup file');
+    if (typeof parsed[0]?.instruction === 'string') return { presets: createPresetState(DEFAULT_PRESETS, parsed as PromptPreset[]) };
+    if (Array.isArray(parsed[0]?.clips)) return { projects: parsed.map(migrateProject) };
+    throw new Error('Could not detect backup type');
+  }
+  if (!parsed || typeof parsed !== 'object') throw new Error('Invalid backup file format');
+  const record = parsed as Record<string, unknown>;
+  const result: { presets?: PresetStateV2; projects?: Project[] } = {};
+  if ('presets' in record) result.presets = parsePresetBackup(record.presets, DEFAULT_PRESETS);
+  else if (record.schemaVersion === 2 && 'overrides' in record) result.presets = parsePresetBackup(record, DEFAULT_PRESETS);
+  if ('projects' in record) {
+    if (!Array.isArray(record.projects)) throw new Error('Projects backup must be an array');
+    result.projects = record.projects.map(migrateProject);
+  }
+  if (!result.presets && !result.projects) throw new Error('Invalid backup file format');
+  return result;
 };
 
-/** Helper to detect if an array contains projects (has 'clips' field) */
-const isProjectsArray = (arr: unknown[]): boolean => {
-  return arr.length > 0 && Array.isArray((arr[0] as { clips?: unknown[] }).clips);
-};
-
-/**
- * Import app data from any backup file format.
- * Auto-detects: fpv-all-data (bundle), fpv-presets (array), or fpv-projects (array).
- * Returns counts of imported items.
- */
 export const importAllAppData = async (file: File): Promise<{ presets: number; projects: number; error?: string }> => {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-
-    reader.onload = (event) => {
-      try {
-        const content = event.target?.result as string;
-        const parsed = JSON.parse(content);
-
-        let presetsToImport: PromptPreset[] = [];
-        let projectsToImport: { id: string; clips: unknown[] }[] = [];
-
-        // Auto-detect format
-        if (Array.isArray(parsed)) {
-          // It's a raw array - detect if presets or projects
-          if (isPresetsArray(parsed)) {
-            presetsToImport = parsed;
-          } else if (isProjectsArray(parsed)) {
-            projectsToImport = parsed as { id: string; clips: unknown[] }[];
-          } else if (parsed.length === 0) {
-            resolve({ presets: 0, projects: 0, error: 'Empty backup file' });
-            return;
-          } else {
-            resolve({ presets: 0, projects: 0, error: 'Could not detect backup type' });
-            return;
-          }
-        } else if (parsed.presets || parsed.projects) {
-          // It's a bundle format (fpv-all-data)
-          if (Array.isArray(parsed.presets)) presetsToImport = parsed.presets;
-          if (Array.isArray(parsed.projects)) projectsToImport = parsed.projects;
-        } else {
-          resolve({ presets: 0, projects: 0, error: 'Invalid backup file format' });
-          return;
-        }
-
-        let presetsImported = 0;
-        let projectsImported = 0;
-
-        // Import presets (merge with existing, avoid duplicates by ID)
-        if (presetsToImport.length > 0) {
-          const existingRaw = localStorage.getItem('fpv_presets');
-          const existing = existingRaw ? JSON.parse(existingRaw) : [];
-          const existingIds = new Set(existing.map((p: PromptPreset) => p.id));
-
-          const newPresets = presetsToImport.filter((p: PromptPreset) => !p.isDefault && !existingIds.has(p.id));
-          if (newPresets.length > 0) {
-            const merged = [...existing, ...newPresets];
-            localStorage.setItem('fpv_presets', JSON.stringify(merged));
-            presetsImported = newPresets.length;
-          }
-        }
-
-        // Import projects (merge with existing, avoid duplicates by ID)
-        if (projectsToImport.length > 0) {
-          const existingRaw = localStorage.getItem('fpv_projects');
-          const existing = existingRaw ? JSON.parse(existingRaw) : [];
-          const existingIds = new Set(existing.map((p: { id: string }) => p.id));
-
-          const newProjects = projectsToImport.filter((p: { id: string }) => !existingIds.has(p.id));
-          if (newProjects.length > 0) {
-            const merged = [...newProjects, ...existing];
-            localStorage.setItem('fpv_projects', JSON.stringify(merged));
-            projectsImported = newProjects.length;
-          }
-        }
-
-        resolve({ presets: presetsImported, projects: projectsImported });
-      } catch (e) {
-        resolve({ presets: 0, projects: 0, error: 'Failed to parse backup file' });
+  try {
+    const imported = parseImport(JSON.parse(await file.text()));
+    const existingPresetState = readStoredPresets();
+    const existingProjects = readStoredProjects();
+    const previousPresets = localStorage.getItem('fpv_presets');
+    const previousProjects = localStorage.getItem('fpv_projects');
+    let presetCount = 0;
+    let projectCount = 0;
+    try {
+      if (imported.presets) {
+        const customIds = new Set(existingPresetState.customPresets.map(preset => preset.id));
+        const newCustom = imported.presets.customPresets.filter(preset => !customIds.has(preset.id));
+        const merged: PresetStateV2 = {
+          schemaVersion: 2,
+          overrides: { ...existingPresetState.overrides, ...imported.presets.overrides },
+          customPresets: [...existingPresetState.customPresets, ...newCustom],
+        };
+        localStorage.setItem('fpv_presets', JSON.stringify(merged));
+        presetCount = newCustom.length + Object.keys(imported.presets.overrides).length;
       }
-    };
-
-    reader.onerror = () => {
-      resolve({ presets: 0, projects: 0, error: 'Failed to read file' });
-    };
-
-    reader.readAsText(file);
-  });
+      if (imported.projects) {
+        const ids = new Set(existingProjects.map(project => project.id));
+        const additions = imported.projects.filter(project => !ids.has(project.id));
+        localStorage.setItem('fpv_projects', JSON.stringify([...additions, ...existingProjects]));
+        projectCount = additions.length;
+      }
+    } catch (error) {
+      if (previousPresets === null) localStorage.removeItem('fpv_presets'); else localStorage.setItem('fpv_presets', previousPresets);
+      if (previousProjects === null) localStorage.removeItem('fpv_projects'); else localStorage.setItem('fpv_projects', previousProjects);
+      throw error;
+    }
+    window.dispatchEvent(new CustomEvent('framegrep:data-imported'));
+    return { presets: presetCount, projects: projectCount };
+  } catch (error) {
+    return { presets: 0, projects: 0, error: error instanceof Error ? error.message : 'Failed to parse backup file' };
+  }
 };
-
-// ===========================================
-// Caption Export Functions
-// ===========================================
 
 interface CaptionExportItem {
   clipIndex: number;
@@ -482,10 +147,7 @@ interface CaptionExportItem {
   captions: SocialCaptions;
 }
 
-/**
- * Export captions as a structured JSON file
- */
-export const exportCaptionsJSON = (items: CaptionExportItem[], filename: string = 'fpv-captions.json'): void => {
+export const exportCaptionsJSON = (items: CaptionExportItem[], filename = 'fpv-captions.json'): void => {
   const data = {
     exportedAt: new Date().toISOString(),
     clips: items.map(item => ({
@@ -498,45 +160,19 @@ export const exportCaptionsJSON = (items: CaptionExportItem[], filename: string 
       hashtags: item.captions.hashtags,
     })),
   };
-
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadBlob(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), filename);
 };
 
-/**
- * Export captions as CSV for spreadsheet use
- */
-export const exportCaptionsCSV = (items: CaptionExportItem[], filename: string = 'fpv-captions.csv'): void => {
-  const escapeCSV = (str: string): string => {
-    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-      return `"${str.replace(/"/g, '""')}"`;
-    }
-    return str;
-  };
-
+export const exportCaptionsCSV = (items: CaptionExportItem[], filename = 'fpv-captions.csv'): void => {
+  const escapeCSV = (value: string): string => value.includes(',') || value.includes('"') || value.includes('\n')
+    ? `"${value.replace(/"/g, '""')}"`
+    : value;
   const headers = ['Clip', 'Description', 'Instagram', 'TikTok', 'YouTube Title', 'YouTube Description', 'Twitter', 'Hashtags'];
   const rows = items.map(item => [
-    String(item.clipIndex + 1),
-    escapeCSV(item.clipDescription),
-    escapeCSV(item.captions.instagram),
-    escapeCSV(item.captions.tiktok),
-    escapeCSV(item.captions.youtube.title),
-    escapeCSV(item.captions.youtube.description),
-    escapeCSV(item.captions.twitter),
-    escapeCSV(item.captions.hashtags.map(h => `#${h}`).join(' ')),
+    String(item.clipIndex + 1), escapeCSV(item.clipDescription), escapeCSV(item.captions.instagram),
+    escapeCSV(item.captions.tiktok), escapeCSV(item.captions.youtube.title),
+    escapeCSV(item.captions.youtube.description), escapeCSV(item.captions.twitter),
+    escapeCSV(item.captions.hashtags.map(tag => `#${tag}`).join(' ')),
   ]);
-
-  const csv = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadBlob(new Blob([[headers.join(','), ...rows.map(row => row.join(','))].join('\n')], { type: 'text/csv' }), filename);
 };

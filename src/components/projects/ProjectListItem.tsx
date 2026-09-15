@@ -113,8 +113,8 @@ const ProjectListItem: React.FC<ProjectListItemProps> = ({
           <Clock size={12} />
           {formatDate(project.updatedAt)}
         </span>
-        {project.videoFilenames.length > 1 && (
-          <span>{project.videoFilenames.length} videos</span>
+        {project.sources.length > 1 && (
+          <span>{project.sources.length} videos</span>
         )}
       </div>
 

@@ -1,7 +1,9 @@
 module.exports = {
     apps: [
         {
-            name: 'frameGrep-Marlin',
+            // The main web app (Vite dev server). Port/bind come from .env.local
+            // (FRAMEGREP_PORT / FRAMEGREP_HOST); defaults are 3008 / 127.0.0.1.
+            name: 'frameGrep',
             script: 'npm',
             args: 'run dev',
             env: {

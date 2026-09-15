@@ -7,22 +7,48 @@ export type EnergyLevel = 'high' | 'medium' | 'low';
 export type EditRecommendation = 'keep' | 'trim' | 'review';
 export type ExportMode = 'highlights_only' | 'full_edit';
 
+export interface RawClipSegment {
+  id?: unknown;
+  sourceId?: unknown;
+  sourceFile?: unknown;
+  startSeconds?: unknown;
+  endSeconds?: unknown;
+  start_time?: unknown;
+  end_time?: unknown;
+  description?: unknown;
+  excitementScore?: unknown;
+  excitement_score?: unknown;
+  reasoning?: unknown;
+  mood?: unknown;
+  lighting?: unknown;
+  dominantColors?: unknown;
+  dominant_colors?: unknown;
+  sectionType?: unknown;
+  section_type?: unknown;
+  energyLevel?: unknown;
+  energy_level?: unknown;
+  recommendation?: unknown;
+  transitionNote?: unknown;
+  transition_note?: unknown;
+}
+
 export interface ClipSegment {
-  start_time: string; // Format "MM:SS"
-  end_time: string;   // Format "MM:SS"
+  id: string;
+  sourceId: string;
+  startSeconds: number;
+  endSeconds: number;
   description: string;
-  excitement_score: number; // 1-10
+  excitementScore: number;
   reasoning?: string; // Chain-of-thought explanation for why this clip was selected
-  sourceFile?: string; // Original filename for multi-video support
   // AI Color/Mood analysis (Issue #19)
   mood?: ClipMood;
   lighting?: LightingCondition;
-  dominant_colors?: string[]; // e.g., ["orange", "blue", "green"]
+  dominantColors?: string[]; // e.g., ["orange", "blue", "green"]
   // Smart Edit Roadmap fields (all optional for backward compatibility)
-  section_type?: SectionType;
-  energy_level?: EnergyLevel;
+  sectionType?: SectionType;
+  energyLevel?: EnergyLevel;
   recommendation?: EditRecommendation;
-  transition_note?: string; // e.g., "Good cut point", "Fade-worthy"
+  transitionNote?: string; // e.g., "Good cut point", "Fade-worthy"
 }
 
 export interface AnalysisResult {
@@ -44,20 +70,39 @@ export interface VideoFile {
   url: string;
 }
 
+export interface FrameRate {
+  numerator: number;
+  denominator: number;
+  nominal: number;
+  mode: 'constant' | 'variable' | 'unknown';
+}
+
 // Video metadata extracted via MediaInfo.js
 export interface VideoMetadata {
   filename: string;
-  fps: number;           // Frame rate (e.g., 24, 30, 60, 100, 120)
+  frameRate: FrameRate;  // Exact timebase (e.g., 30000/1001)
   width: number;         // Video width in pixels
   height: number;        // Video height in pixels
   codec: string;         // Video codec (e.g., "HEVC", "H.264")
   duration: number;      // Duration in seconds
 }
 
-export type QueueItemStatus = 'pending' | 'preparing' | 'uploading' | 'processing' | 'analyzing' | 'complete' | 'error';
+export interface VideoSource {
+  id: string;
+  fingerprint: string;
+  filename: string;
+  size: number;
+  lastModified: number;
+  metadata: VideoMetadata;
+  /** Legacy filename-only sources cannot be safely auto-linked when duplicated. */
+  legacy?: boolean;
+}
+
+export type QueueItemStatus = 'pending' | 'preparing' | 'uploading' | 'processing' | 'analyzing' | 'complete' | 'error' | 'cancelled';
 
 export interface VideoQueueItem {
   id: string;
+  source: VideoSource;
   file: File;
   url: string;
   status: QueueItemStatus;
@@ -90,6 +135,7 @@ export interface CustomProviderConfig {
   model: string;         // e.g., "qwen/qwen3-vl-8b-instruct"
   apiKey?: string;       // Required for OpenRouter, optional for Ollama
   useNativeVideo?: boolean; // When true, send video_url instead of frame extraction (vLLM only)
+  contextLength?: number;    // Model-reported context window used to derive frame budget
 }
 
 // Alias for backward compatibility
@@ -112,7 +158,11 @@ export type GeminiModel =
   | 'gemini-3.1-flash-lite'
   | 'gemini-3-flash-preview'
   | 'gemini-2.5-flash'
-  | 'gemini-3.5-flash';
+  | 'gemini-3.5-flash'
+  | 'gemini-3.5-flash-lite'
+  | 'gemini-3.6-flash'
+  | 'gemini-3.7-flash'
+  | 'gemini-3.8-flash';
 
 export type GeminiMediaResolution = 'default' | 'low';
 
@@ -199,12 +249,13 @@ export interface SelectedMusicTrack {
 
 // Saved analysis project (persisted to localStorage)
 export interface Project {
+  schemaVersion: 2;
   id: string;                    // Unique ID (timestamp-based)
   name: string;                  // User-editable name
   createdAt: string;             // ISO timestamp
   updatedAt: string;             // ISO timestamp
   clips: ClipSegment[];          // All analyzed clips
-  videoFilenames: string[];      // Original filenames (videos must be re-uploaded)
+  sources: VideoSource[];        // Stable source identities; media is relinked locally
   presetId: string;              // Preset used for analysis
   presetInstruction: string;     // Instruction snapshot at analysis time
   provider: AnalysisProvider;    // Provider used ('gemini' | 'custom')

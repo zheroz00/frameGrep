@@ -4,6 +4,7 @@ import { UseAppSettingsReturn } from '../../hooks/useAppSettings';
 import ModelSelectorModal from './ModelSelectorModal';
 import { exportAllAppData, importAllAppData } from '../../utils/exportUtils';
 import { GeminiModel } from '../../types';
+import { GEMINI_ANALYSIS_MODELS } from '../../services/geminiModels';
 
 interface GeminiModelOption {
   id: GeminiModel;
@@ -11,13 +12,7 @@ interface GeminiModelOption {
   description: string;
 }
 
-const GEMINI_MODEL_OPTIONS: GeminiModelOption[] = [
-  { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite', description: 'Recommended — ~$0.0024/60s, best FPV clip detection in testing (5 clips on backflip sample)' },
-  { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite', description: 'Current GA — ~$0.0068/60s, but tends to over-merge FPV clips in testing' },
-  { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview', description: 'Preview — ~$0.0135/60s, strong on individual tricks (e.g. backflip detection)' },
-  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', description: 'Standard — ~$0.0092/60s, proven workhorse' },
-  { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', description: 'Premium — ~$0.0405/60s, deepest reasoning' },
-];
+const GEMINI_MODEL_OPTIONS: GeminiModelOption[] = GEMINI_ANALYSIS_MODELS.map(({ id, label, description }) => ({ id, label, description }));
 
 interface SettingsModalProps {
   isOpen: boolean;

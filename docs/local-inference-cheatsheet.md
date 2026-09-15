@@ -72,7 +72,7 @@ the Anthropic-direct provider (Bedrock otherwise substitutes a non-vision Haiku)
 
 | Service | PM2 name | Port | GPU | Purpose | App provider |
 |---|---|---|---|---|---|
-| **Vite app** | `frameGrep-Marlin` | 3007 | — | The web app (dev server) | — |
+| **Vite app** | `frameGrep-Marlin` | 3008 | — | The web app (dev server) | — |
 | **llama-swap** | `llama-server-cuda` | 7744 | 0 (+1) | llama.cpp GGUF server, swaps models on demand | Custom → `/api/llama/v1` |
 | **vLLM** | `vllm-server` | 8002 | 0 | Native-video analysis (Qwen-VL & other standard archs) | Custom → `/api/vllm/v1` |
 | **Marlin** | `marlin-server` | 8003 | 0 | Local Marlin-2B clip-ID (caption/find) | Marlin (local) |
@@ -225,6 +225,6 @@ switch models via `.env.local` + `pm2 restart vllm-server` instead.
 
 ```bash
 pm2 list | grep -E "frameGrep-Marlin|vllm-server|marlin-server|llama-server-cuda"
-ss -tlnp | grep -E ':(3007|7744|8002|8003) '
+ss -tlnp | grep -E ':(3008|7744|8002|8003) '
 nvidia-smi --query-compute-apps=pid,used_memory --format=csv
 ```

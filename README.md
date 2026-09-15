@@ -41,9 +41,11 @@ are documented in **[docs/local-inference-cheatsheet.md](docs/local-inference-ch
 
 ## Setup
 
-**Prerequisites:** Node.js 18+. Cloud providers (Gemini, OpenRouter) need nothing else.
-Self-hosting the **local** model providers additionally requires an NVIDIA GPU with CUDA
-and an ffmpeg build with NVENC (used for both transcoding and local inference).
+**Prerequisites:** Node.js 18+. Install FFmpeg (including `ffprobe`) to use automatic
+analysis downsampling or generated FFmpeg scripts. NVIDIA is optional: the local server
+uses NVENC when its startup probe succeeds and otherwise falls back to CPU `libx264`.
+Self-hosting GPU-based local model providers still requires the hardware/runtime described
+in the local inference guide.
 
 1. Install dependencies:
    ```bash
@@ -56,10 +58,13 @@ and an ffmpeg build with NVENC (used for both transcoding and local inference).
    ```
    At minimum, set **one** provider — e.g. `VITE_GEMINI_API_KEY` for Gemini. `.env.example`
    documents the rest (OpenRouter, Jamendo music, and the local-inference options).
-3. Run the dev server (starts at **http://localhost:3007**):
+3. Run the dev server (starts at **http://localhost:3008**):
    ```bash
    npm run dev
    ```
+
+   Set `FRAMEGREP_PORT` to use a different port. Startup fails clearly if the selected
+   port is already occupied instead of silently moving to another port.
 
 > **Production builds:** `npm run build` inlines `GEMINI_API_KEY` (if set) into the bundle —
 > anyone with the built `dist/` can read it. Keep keys out of shared builds; for local dev,

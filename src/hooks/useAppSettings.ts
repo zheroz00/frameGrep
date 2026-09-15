@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppSettings, AnalysisProvider, CustomProviderConfig, OpenRouterModel, GeminiModel, GeminiMediaResolution } from '../types';
 import { fetchOpenRouterModels, filterVisionModels } from '../services/openrouterService';
+import { isGeminiAnalysisModel } from '../services/geminiModels';
 
 const SETTINGS_KEY = 'fpv_app_settings';
 
@@ -188,14 +189,17 @@ export function useAppSettings(): UseAppSettingsReturn {
       if (stored) {
         const parsed = JSON.parse(stored);
         // Merge with defaults to handle new fields
-        setSettings({
+        const nextSettings = {
           ...getDefaultSettings(),
           ...parsed,
+          geminiModel: isGeminiAnalysisModel(parsed.geminiModel) ? parsed.geminiModel : getDefaultSettings().geminiModel,
           customConfig: {
             ...getDefaultSettings().customConfig,
             ...parsed.customConfig
           }
-        });
+        };
+        setSettings(nextSettings);
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(nextSettings));
       }
     } catch (error) {
       console.error('Failed to load settings:', error);

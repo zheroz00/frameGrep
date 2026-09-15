@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import {
   FolderOpen, X, Download, Upload, Save, Film, AlertCircle, CheckCircle2, HardDrive
 } from 'lucide-react';
-import { Project, ClipSegment, AnalysisProvider, SelectedMusicTrack } from '../types';
+import { Project, ClipSegment, AnalysisProvider, SelectedMusicTrack, VideoSource } from '../types';
 import { UseProjectsReturn, ProjectMetadata } from '../hooks/useProjects';
 import ProjectListItem from './projects/ProjectListItem';
 
@@ -12,7 +12,7 @@ interface ProjectsSidebarProps {
   projects: UseProjectsReturn;
   // Current analysis state
   currentClips: ClipSegment[];
-  videoFilenames: string[];
+  videoSources: VideoSource[];
   hasUnsavedChanges: boolean;
   // Preset info for saving
   activePresetId: string;
@@ -29,7 +29,7 @@ const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
   onClose,
   projects,
   currentClips,
-  videoFilenames,
+  videoSources,
   hasUnsavedChanges,
   activePresetId,
   activePresetInstruction,
@@ -53,7 +53,7 @@ const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
     };
 
     const name = saveAsName.trim() || undefined;
-    projects.createProject(currentClips, videoFilenames, metadata, name);
+    projects.createProject(currentClips, videoSources, metadata, name);
     setSaveAsName('');
     setShowSaveInput(false);
   };
@@ -67,7 +67,7 @@ const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
         provider,
         selectedMusic,
       };
-      projects.updateProject(currentProject.id, currentClips, videoFilenames, metadata);
+      projects.updateProject(currentProject.id, currentClips, videoSources, metadata);
     }
   };
 
@@ -193,8 +193,8 @@ const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
                   <Film size={12} />
                   {currentClips.length} clips
                 </span>
-                {videoFilenames.length > 0 && (
-                  <span>{videoFilenames.length} video{videoFilenames.length > 1 ? 's' : ''}</span>
+                {videoSources.length > 0 && (
+                  <span>{videoSources.length} video{videoSources.length > 1 ? 's' : ''}</span>
                 )}
               </div>
 

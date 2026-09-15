@@ -3,7 +3,7 @@
  * Manages music panel state, Jamendo searches, audio preview playback, and track selection/download.
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
 import { ClipSegment, JamendoTrack, MusicSuggestion, MusicSearchMode, SelectedMusicTrack } from '../types';
 import { searchTracksForClips, searchTracks } from '../services/jamendoService';
@@ -57,11 +57,22 @@ export function useMusic(): UseMusicReturn {
   // Audio playback
   const [currentlyPlaying, setCurrentlyPlaying] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const downloadControllerRef = useRef<AbortController | null>(null);
 
   // Track selection & download
   const [selectedTrack, setSelectedTrack] = useState<SelectedMusicTrack | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
+
+  useEffect(() => () => {
+    downloadControllerRef.current?.abort();
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.removeAttribute('src');
+      audioRef.current.load();
+      audioRef.current = null;
+    }
+  }, []);
 
   const openPanel = useCallback((searchMode: MusicSearchMode, clipIndex?: number) => {
     setMode(searchMode);
@@ -227,6 +238,9 @@ export function useMusic(): UseMusicReturn {
     setDownloadProgress(0);
     setError(null);
     stopPlayback();
+    downloadControllerRef.current?.abort();
+    const controller = new AbortController();
+    downloadControllerRef.current = controller;
 
     try {
       // Generate filename: sanitize track name + ID for uniqueness
@@ -241,7 +255,7 @@ export function useMusic(): UseMusicReturn {
 
       console.log('Downloading track from:', downloadUrl);
 
-      const response = await fetch(downloadUrl);
+      const response = await fetch(downloadUrl, { signal: controller.signal });
       if (!response.ok) {
         throw new Error(`Failed to download: ${response.status} ${response.statusText}`);
       }
@@ -298,6 +312,7 @@ export function useMusic(): UseMusicReturn {
       setError(err instanceof Error ? err.message : 'Failed to download track');
       return null;
     } finally {
+      if (downloadControllerRef.current === controller) downloadControllerRef.current = null;
       setIsDownloading(false);
     }
   }, [stopPlayback]);

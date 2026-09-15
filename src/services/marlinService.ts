@@ -1,4 +1,4 @@
-import { ClipSegment } from '../types';
+import { RawClipSegment } from '../types';
 import { downscaleForNativeVideo } from './localVLMService';
 
 /**
@@ -20,7 +20,7 @@ export interface MarlinConfig {
 }
 
 interface MarlinAnalyzeResponse {
-  clips: ClipSegment[];
+  clips: RawClipSegment[];
   scene?: string;
   event_count?: number;
   elapsed_s?: number;
@@ -52,7 +52,9 @@ const _downscaleCache = new WeakMap<File, Promise<File>>();
 const getDownscaled = async (
   videoFile: File,
   onProgress?: (phase: string, detail?: string) => void,
+  signal?: AbortSignal,
 ): Promise<File> => {
+  if (signal) return downscaleForNativeVideo(videoFile, onProgress, signal);
   let pending = _downscaleCache.get(videoFile);
   if (!pending) {
     pending = downscaleForNativeVideo(videoFile, onProgress).catch((e) => {
@@ -87,8 +89,9 @@ export const analyzeVideoMarlin = async (
   config: MarlinConfig,
   videoFile: File,
   onProgress?: (phase: string, detail?: string) => void,
-): Promise<ClipSegment[]> => {
-  const fileToSend = await getDownscaled(videoFile, onProgress);
+  signal?: AbortSignal,
+): Promise<RawClipSegment[]> => {
+  const fileToSend = await getDownscaled(videoFile, onProgress, signal);
 
   const base = config.endpoint.replace(/\/$/, '');
   const sizeMB = (fileToSend.size / (1024 * 1024)).toFixed(0);
@@ -98,6 +101,7 @@ export const analyzeVideoMarlin = async (
     method: 'POST',
     headers: { 'Content-Type': fileToSend.type || 'video/mp4' },
     body: fileToSend,
+    signal,
     // @ts-expect-error — duplex is valid but missing from current TS lib types
     duplex: 'half',
   });
@@ -123,11 +127,12 @@ export const findInVideoMarlin = async (
   event: string,
   opts: MarlinFindOptions = {},
   onProgress?: (phase: string, detail?: string) => void,
+  signal?: AbortSignal,
 ): Promise<MarlinFindResult> => {
   const query = event.trim();
   if (!query) throw new Error('Search query is empty.');
 
-  const fileToSend = await getDownscaled(videoFile, onProgress);
+  const fileToSend = await getDownscaled(videoFile, onProgress, signal);
 
   const base = config.endpoint.replace(/\/$/, '');
   const params = new URLSearchParams({ event: query });
@@ -141,6 +146,7 @@ export const findInVideoMarlin = async (
     method: 'POST',
     headers: { 'Content-Type': fileToSend.type || 'video/mp4' },
     body: fileToSend,
+    signal,
     // @ts-expect-error — duplex is valid but missing from current TS lib types
     duplex: 'half',
   });

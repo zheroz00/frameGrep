@@ -20,7 +20,7 @@ import { useVideoAnalysis } from './hooks/useVideoAnalysis';
 import { useAppSettings } from './hooks/useAppSettings';
 import { useProjects } from './hooks/useProjects';
 import { useMusic } from './hooks/useMusic';
-import { generateEDLWithMode, generateFFmpegScriptWithMode, generateFCPXMLWithMode, filterClipsForExport, FCPXMLOptions } from './utils/exportUtils';
+import { generateEDLWithMode, generateFFmpegScriptWithMode, generateFCPXMLWithMode, filterClipsForExport, getEDLCompatibility, getSourceIdentityIssue, FCPXMLOptions } from './utils/exportUtils';
 import { ExportMode, Project, ClipSegment, CaptionMode } from './types';
 
 const serializeComparable = (value: unknown): string => JSON.stringify(value ?? null);
@@ -56,7 +56,7 @@ export default function App() {
   // Destructure commonly used settings
   const { settings, updateProvider, updateSettings } = appSettings;
   const provider = settings.provider;
-  const currentVideoFilenames = analysis.videoQueue.map(v => v.file.name);
+  const currentVideoSources = analysis.videoQueue.map(v => v.source);
 
   // Compute export helpers
   const currentProject = projects.currentProjectId
@@ -88,14 +88,14 @@ export default function App() {
       currentProject.presetId !== currentProjectMetadata.presetId ||
       currentProject.presetInstruction !== currentProjectMetadata.presetInstruction ||
       currentProject.provider !== currentProjectMetadata.provider ||
-      serializeComparable(currentProject.videoFilenames) !== serializeComparable(currentVideoFilenames) ||
+      serializeComparable(currentProject.sources) !== serializeComparable(currentVideoSources) ||
       serializeComparable(currentProject.clips) !== serializeComparable(analysis.allClips) ||
       serializeComparable(currentProject.selectedMusic) !== serializeComparable(currentProjectMetadata.selectedMusic)
     );
   }, [
     currentProject,
     currentProjectMetadata,
-    currentVideoFilenames,
+    currentVideoSources,
     analysis.allClips,
   ]);
 
@@ -162,7 +162,10 @@ export default function App() {
       presets.currentMaxDuration,
       presets.activeCategory,
       {
-        localConfig: provider === 'custom' ? settings.customConfig : undefined,
+        localConfig: provider === 'custom' ? {
+          ...settings.customConfig,
+          contextLength: appSettings.openrouterModels.find(model => model.id === settings.customConfig.model)?.context_length,
+        } : undefined,
         geminiModel: settings.geminiModel,
         geminiMediaResolution: settings.geminiMediaResolution,
         geminiFps: settings.geminiFps,
@@ -177,7 +180,7 @@ export default function App() {
     presets.loadProjectPreset(project.presetId, project.presetInstruction);
     music.setSelectedTrack(project.selectedMusic ?? null);
     // Load clips from saved project into the analysis state
-    analysis.loadClipsFromProject(project.clips, project.videoFilenames);
+    analysis.loadClipsFromProject(project.clips, project.sources);
     setIsProjectsOpen(false);
   };
 
@@ -199,12 +202,16 @@ export default function App() {
     a.href = url;
     a.download = filename;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
   // Get unique source files for export
-  const sourceFiles = [...new Set(analysis.allClips.map(c => c.sourceFile).filter(Boolean))] as string[];
-  const hasMultipleSources = sourceFiles.length > 1;
+  const usedSourceIds = new Set(analysis.allClips.map(clip => clip.sourceId));
+  const exportSources = currentVideoSources.filter(source => usedSourceIds.has(source.id));
+  const sourceFiles = exportSources.map(source => source.filename);
+  const hasMultipleSources = exportSources.length > 1;
+  const edlCompatibility = getEDLCompatibility(exportSources);
+  const exportIdentityIssue = getSourceIdentityIssue(exportSources);
 
   // Get display name for custom model
   const customModelDisplay = appSettings.openrouterModels.find(m => m.id === settings.customConfig.model)?.name
@@ -417,7 +424,7 @@ export default function App() {
         onClose={() => setIsProjectsOpen(false)}
         projects={projects}
         currentClips={analysis.allClips}
-        videoFilenames={currentVideoFilenames}
+        videoSources={currentVideoSources}
         hasUnsavedChanges={hasUnsavedChanges}
         activePresetId={presets.activePresetId}
         activePresetInstruction={presets.currentInstruction}
@@ -563,6 +570,7 @@ export default function App() {
                           {item.status === 'complete' && item.url && <CheckCircle2 size={12} className="text-green-500" />}
                           {item.status === 'complete' && !item.url && <Link2 size={12} className="text-amber-400" />}
                           {item.status === 'error' && <XCircle size={12} className="text-red-500" />}
+                          {item.status === 'cancelled' && <XCircle size={12} className="text-zinc-500" />}
                         </div>
                         <span className={`flex-1 truncate ${item.url ? 'text-zinc-400' : 'text-amber-400/70'}`}>{item.file.name}</span>
                         {item.transcodedUrl && (
@@ -586,6 +594,9 @@ export default function App() {
                           <span className="text-red-400 truncate max-w-[100px]" title={item.error}>
                             {item.error}
                           </span>
+                        )}
+                        {(item.status === 'error' || item.status === 'cancelled') && !analysis.isBusy && (
+                          <button onClick={() => analysis.retryItem(item.id)} className="text-amber-400 hover:text-amber-300 text-[10px]">Retry</button>
                         )}
                         {!analysis.isBusy && item.status === 'pending' && (
                           <button
@@ -625,7 +636,7 @@ export default function App() {
                         )}
                         {analysis.phaseDetail || (
                           <>
-                            {analysis.uploadPhase === 'preparing' && "NVENC transcoding..."}
+                            {analysis.uploadPhase === 'preparing' && "Transcoding for analysis..."}
                             {analysis.uploadPhase === 'uploading' && "Uploading to Gemini Files API..."}
                             {analysis.uploadPhase === 'processing' && `Gemini processing video on Google servers (${analysis.processingProgress.attempt}/${analysis.processingProgress.maxAttempts} polls, ${analysis.processingProgress.attempt * 2}s elapsed)...`}
                             {analysis.uploadPhase === 'extracting' && "Extracting video frames..."}
@@ -634,11 +645,12 @@ export default function App() {
                         )}
                       </span>
                     </div>
-                    <span className={`font-mono font-bold tabular-nums text-sm ${
-                      provider === 'custom' ? 'text-purple-500' : 'text-amber-500'
-                    }`}>
-                      {Math.floor(analysis.elapsedTime / 60)}:{String(analysis.elapsedTime % 60).padStart(2, '0')}
-                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className={`font-mono font-bold tabular-nums text-sm ${provider === 'custom' ? 'text-purple-500' : 'text-amber-500'}`}>
+                        {Math.floor(analysis.elapsedTime / 60)}:{String(analysis.elapsedTime % 60).padStart(2, '0')}
+                      </span>
+                      <button onClick={analysis.cancelAnalysis} className="text-[10px] text-red-400 hover:text-red-300 border border-red-500/30 rounded px-2 py-1">Cancel</button>
+                    </div>
                   </div>
                   {(analysis.uploadPhase === 'preparing' || analysis.uploadPhase === 'processing') && (
                     <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
@@ -693,22 +705,26 @@ export default function App() {
                     </div>
                     <div className="flex gap-2">
                       <button
-                        onClick={() => downloadFile(generateEDLWithMode(sourceFiles[0] || 'video.mp4', analysis.allClips, exportMode, firstVideoMetadata?.fps), 'FPV_Supercut.edl')}
-                        className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs rounded flex items-center gap-2 transition-colors"
+                        onClick={() => downloadFile(generateEDLWithMode(analysis.allClips, exportSources, exportMode), 'FPV_Supercut.edl')}
+                        disabled={!edlCompatibility.supported}
+                        title={edlCompatibility.reason ?? 'Export CMX 3600 EDL'}
+                        className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed text-zinc-200 text-xs rounded flex items-center gap-2 transition-colors"
                       >
                         <Monitor size={12} /> EDL
                       </button>
                       <button
-                        onClick={() => downloadFile(generateFFmpegScriptWithMode(sourceFiles[0] || 'video.mp4', analysis.allClips, 'unix', exportMode), 'stitch.sh')}
-                        className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs rounded flex items-center gap-2 transition-colors"
+                        onClick={() => downloadFile(generateFFmpegScriptWithMode(analysis.allClips, exportSources, 'unix', exportMode), 'stitch.sh')}
+                        disabled={Boolean(exportIdentityIssue)}
+                        title={exportIdentityIssue ?? 'Export a frame-accurate FFmpeg script'}
+                        className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed text-zinc-200 text-xs rounded flex items-center gap-2 transition-colors"
                       >
                         <FileCode size={12} /> FFmpeg
                       </button>
                       <button
                         onClick={() => {
                           const fcpxmlOptions: FCPXMLOptions = {
+                            sources: exportSources,
                             audioFilename: music.selectedTrack?.filename,
-                            metadata: firstVideoMetadata,
                             mediaFolder: settings.davinciMediaFolder,
                           };
                           downloadFile(
@@ -716,8 +732,9 @@ export default function App() {
                             exportFilename
                           );
                         }}
-                        className="px-3 py-1.5 bg-orange-500/10 border border-orange-500/30 hover:bg-orange-500/20 text-orange-400 text-xs rounded flex items-center gap-2 transition-colors"
-                        title={`Export as FCPXML for DaVinci Resolve${firstVideoMetadata ? ` (${firstVideoMetadata.fps}fps ${firstVideoMetadata.width}x${firstVideoMetadata.height})` : ''}${music.selectedTrack ? ` with music: ${music.selectedTrack.track.name}` : ''}`}
+                        disabled={Boolean(exportIdentityIssue)}
+                        className="px-3 py-1.5 bg-orange-500/10 border border-orange-500/30 hover:bg-orange-500/20 disabled:opacity-40 disabled:cursor-not-allowed text-orange-400 text-xs rounded flex items-center gap-2 transition-colors"
+                        title={exportIdentityIssue ?? `Export as FCPXML for DaVinci Resolve${firstVideoMetadata ? ` (${firstVideoMetadata.frameRate.numerator}/${firstVideoMetadata.frameRate.denominator} ${firstVideoMetadata.width}x${firstVideoMetadata.height})` : ''}${music.selectedTrack ? ` with music: ${music.selectedTrack.track.name}` : ''}`}
                       >
                         <Film size={12} /> DaVinci {music.selectedTrack && <Music size={10} className="text-emerald-400" />}
                       </button>
@@ -731,7 +748,7 @@ export default function App() {
                     </div>
                   </div>
                   {/* Export Mode Toggle - show when Smart Edit data is present */}
-                  {analysis.allClips.some(c => c.section_type) && (
+                  {analysis.allClips.some(c => c.sectionType) && (
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Mode:</span>
                       <div className="flex items-center bg-zinc-950 border border-zinc-800 rounded-lg p-0.5">
@@ -779,8 +796,10 @@ export default function App() {
                     <Terminal size={14} /> FFmpeg Commands
                   </div>
                   <pre className="text-[10px] font-mono text-zinc-400 overflow-x-auto whitespace-pre p-3 bg-black rounded border border-zinc-800 scrollbar-thin max-h-32">
-                    {generateFFmpegScriptWithMode(sourceFiles[0] || 'video.mp4', analysis.allClips, 'unix', exportMode).split('\n').filter((l: string) => l.includes('ffmpeg')).slice(0, 5).join('\n')}
-                    {filterClipsForExport(analysis.allClips, exportMode).length > 5 && '\n# ... and more'}
+                    {exportIdentityIssue
+                      ? `# Export blocked: ${exportIdentityIssue}`
+                      : generateFFmpegScriptWithMode(analysis.allClips, exportSources, 'unix', exportMode).split('\n').filter((l: string) => l.includes('ffmpeg')).slice(0, 5).join('\n')}
+                    {!exportIdentityIssue && filterClipsForExport(analysis.allClips, exportMode).length > 5 && '\n# ... and more'}
                   </pre>
                 </div>
               </div>
@@ -797,15 +816,15 @@ export default function App() {
               {analysis.allClips.length > 0 && (
                 <div className="flex items-center gap-2">
                   {/* Section type breakdown when Smart Edit is used */}
-                  {analysis.allClips.some(c => c.section_type) ? (
+                  {analysis.allClips.some(c => c.sectionType) ? (
                     <div className="flex items-center gap-1.5 text-[10px]">
-                      <span className="text-green-400">{analysis.allClips.filter(c => c.section_type === 'highlight').length} highlights</span>
+                      <span className="text-green-400">{analysis.allClips.filter(c => c.sectionType === 'highlight').length} highlights</span>
                       <span className="text-zinc-600">|</span>
-                      <span className="text-blue-400">{analysis.allClips.filter(c => c.section_type === 'flow').length} flow</span>
+                      <span className="text-blue-400">{analysis.allClips.filter(c => c.sectionType === 'flow').length} flow</span>
                       <span className="text-zinc-600">|</span>
-                      <span className="text-yellow-400">{analysis.allClips.filter(c => c.section_type === 'transition').length} transitions</span>
+                      <span className="text-yellow-400">{analysis.allClips.filter(c => c.sectionType === 'transition').length} transitions</span>
                       <span className="text-zinc-600">|</span>
-                      <span className="text-red-400">{analysis.allClips.filter(c => c.section_type === 'dead_time').length} dead</span>
+                      <span className="text-red-400">{analysis.allClips.filter(c => c.sectionType === 'dead_time').length} dead</span>
                     </div>
                   ) : (
                     <span className="px-2 py-0.5 bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-500 rounded">
@@ -829,7 +848,7 @@ export default function App() {
                     key={idx}
                     index={idx}
                     clip={clip}
-                    filename={clip.sourceFile || 'video.mp4'}
+                    filename={currentVideoSources.find(source => source.id === clip.sourceId)?.filename || 'video.mp4'}
                     onPlay={() => analysis.handlePlayClip(clip, idx)}
                     onCaption={() => setCaptionModal({ isOpen: true, clip, mode: 'clip' })}
                     onMusic={() => music.openPanel('single_clip', idx)}

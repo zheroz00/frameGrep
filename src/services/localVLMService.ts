@@ -1,5 +1,6 @@
-import { ClipSegment, VideoMetadata } from '../types';
+import { RawClipSegment, VideoMetadata } from '../types';
 import { extractVideoMetadata } from './mediaInfoService';
+import { parseOpenAIResponse } from './openAIStream';
 
 export interface LocalVLMConfig {
   endpoint: string;
@@ -7,6 +8,7 @@ export interface LocalVLMConfig {
   apiKey?: string;
   maxFrames?: number; // Override max frames for local models with limited context
   useNativeVideo?: boolean;
+  contextLength?: number;
 }
 
 export type FrameExtractionProgress = (current: number, total: number) => void;
@@ -75,24 +77,37 @@ export const getMaxFrames = (config: LocalVLMConfig): number => {
   // Priority: config override > env var > endpoint-based default
   if (config.maxFrames) return config.maxFrames;
   if (ENV_MAX_FRAMES && !isNaN(ENV_MAX_FRAMES)) return ENV_MAX_FRAMES;
+  if (config.contextLength && config.contextLength > LOCAL_MAX_OUTPUT_TOKENS + LOCAL_PROMPT_RESERVE) {
+    return Math.max(1, Math.floor((config.contextLength - LOCAL_MAX_OUTPUT_TOKENS - LOCAL_PROMPT_RESERVE) / LOCAL_EST_TOKENS_PER_FRAME));
+  }
   return isLocalEndpoint(config.endpoint) ? LOCAL_MODEL_MAX_FRAMES : DEFAULT_MAX_FRAMES;
 };
 
 /**
  * Get video duration without fully loading the video
  */
-export const getVideoDuration = (videoFile: File): Promise<number> => {
+export const getVideoDuration = (videoFile: File, signal?: AbortSignal): Promise<number> => {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
     video.preload = 'metadata';
 
+    const abort = () => {
+      URL.revokeObjectURL(video.src);
+      video.removeAttribute('src');
+      reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'));
+    };
+    if (signal?.aborted) return abort();
+    signal?.addEventListener('abort', abort, { once: true });
+
     video.onloadedmetadata = () => {
+      signal?.removeEventListener('abort', abort);
       const duration = video.duration;
       URL.revokeObjectURL(video.src);
       resolve(duration);
     };
 
     video.onerror = () => {
+      signal?.removeEventListener('abort', abort);
       URL.revokeObjectURL(video.src);
       reject(new Error('Failed to load video metadata'));
     };
@@ -141,7 +156,8 @@ export const extractFramesFromVideo = async (
   framesPerSecond: number = 0.5,
   onProgress?: FrameExtractionProgress,
   maxWidth: number = CLOUD_FRAME_MAX_W,
-  maxHeight: number = CLOUD_FRAME_MAX_H
+  maxHeight: number = CLOUD_FRAME_MAX_H,
+  signal?: AbortSignal,
 ): Promise<{ timestamp: number; base64: string }[]> => {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
@@ -156,6 +172,14 @@ export const extractFramesFromVideo = async (
     video.preload = 'metadata';
     video.muted = true;
     video.playsInline = true;
+
+    const abort = () => {
+      URL.revokeObjectURL(video.src);
+      video.removeAttribute('src');
+      reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'));
+    };
+    if (signal?.aborted) return abort();
+    signal?.addEventListener('abort', abort, { once: true });
 
     const frames: { timestamp: number; base64: string }[] = [];
     let currentTime = 0;
@@ -172,6 +196,7 @@ export const extractFramesFromVideo = async (
 
       const captureFrame = () => {
         if (currentTime >= duration) {
+          signal?.removeEventListener('abort', abort);
           URL.revokeObjectURL(video.src);
           resolve(frames);
           return;
@@ -198,6 +223,7 @@ export const extractFramesFromVideo = async (
     };
 
     video.onerror = () => {
+      signal?.removeEventListener('abort', abort);
       URL.revokeObjectURL(video.src);
       reject(new Error('Failed to load video'));
     };
@@ -259,7 +285,7 @@ Return ONLY valid JSON array, no markdown or explanation.`;
 /**
  * Parse JSON from model response, handling common issues
  */
-const parseModelResponse = (response: string): ClipSegment[] => {
+export const parseModelResponse = (response: string): RawClipSegment[] => {
   // Try to extract JSON array from response
   let jsonStr = response.trim();
 
@@ -297,7 +323,7 @@ const parseModelResponse = (response: string): ClipSegment[] => {
     if (!Array.isArray(parsed)) {
       throw new Error('Response is not an array');
     }
-    return parsed as ClipSegment[];
+    return parsed as RawClipSegment[];
   } catch (e) {
     console.error('Failed to parse model response:', response);
     throw new Error(`Failed to parse model response as JSON: ${e}`);
@@ -311,11 +337,12 @@ export const analyzeVideoLocal = async (
   config: LocalVLMConfig,
   videoFile: File,
   systemInstruction: string,
-  onProgress?: (phase: string, detail?: string) => void
-): Promise<ClipSegment[]> => {
+  onProgress?: (phase: string, detail?: string) => void,
+  signal?: AbortSignal,
+): Promise<RawClipSegment[]> => {
   // Get video duration first to calculate adaptive FPS
   onProgress?.('extracting', 'Reading video metadata...');
-  const duration = await getVideoDuration(videoFile);
+  const duration = await getVideoDuration(videoFile, signal);
 
   // Get max frames based on endpoint type (local models have a smaller context)
   const isLocal = isLocalEndpoint(config.endpoint);
@@ -336,6 +363,7 @@ export const analyzeVideoLocal = async (
     },
     isLocal ? LOCAL_FRAME_MAX_W : CLOUD_FRAME_MAX_W,
     isLocal ? LOCAL_FRAME_MAX_H : CLOUD_FRAME_MAX_H,
+    signal,
   );
 
   if (frames.length === 0) {
@@ -417,7 +445,8 @@ export const analyzeVideoLocal = async (
   const response = await fetch(`${endpoint}/chat/completions`, {
     method: 'POST',
     headers,
-    body: JSON.stringify(requestBody)
+    body: JSON.stringify(requestBody),
+    signal,
   });
 
   if (!response.ok) {
@@ -425,56 +454,10 @@ export const analyzeVideoLocal = async (
     throw new Error(`API request failed: ${response.status} - ${errorText}`);
   }
 
-  if (!response.body) {
-    throw new Error('Streaming response has no body');
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let contentText = '';
-  let reasoningText = '';
-  let finishReason: string | null = null;
-  let lastTick = Date.now();
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-
-    // SSE frames are separated by blank lines (\n\n). Process complete frames only;
-    // keep the trailing partial frame in the buffer for the next read.
-    let idx: number;
-    while ((idx = buffer.indexOf('\n\n')) !== -1) {
-      const frame = buffer.slice(0, idx);
-      buffer = buffer.slice(idx + 2);
-
-      for (const line of frame.split('\n')) {
-        if (!line.startsWith('data:')) continue;
-        const payload = line.slice(5).trim();
-        if (!payload || payload === '[DONE]') continue;
-
-        try {
-          const chunk = JSON.parse(payload);
-          const delta = chunk.choices?.[0]?.delta || {};
-          if (typeof delta.content === 'string') contentText += delta.content;
-          if (typeof delta.reasoning_content === 'string') reasoningText += delta.reasoning_content;
-          const fr = chunk.choices?.[0]?.finish_reason;
-          if (fr) finishReason = fr;
-        } catch {
-          // Tolerate malformed chunks rather than blow up mid-stream.
-        }
-      }
-    }
-
-    const now = Date.now();
-    if (now - lastTick > 5000) {
-      const chars = contentText.length + reasoningText.length;
-      onProgress?.('analyzing', `Streaming response... ${chars} chars received`);
-      lastTick = now;
-    }
-  }
+  const parsedStream = await parseOpenAIResponse(response, signal, chars => onProgress?.('analyzing', `Streaming response... ${chars} chars received`));
+  const contentText = parsedStream.content;
+  const reasoningText = parsedStream.reasoning;
+  const finishReason = parsedStream.finishReason;
 
   onProgress?.('parsing', 'Parsing results...');
 
@@ -546,6 +529,7 @@ const NATIVE_VIDEO_MAX_HEIGHT = 480;
 export async function downscaleForNativeVideo(
   file: File,
   onProgress?: (phase: string, detail?: string) => void,
+  signal?: AbortSignal,
 ): Promise<File> {
   let meta: VideoMetadata | null = null;
   try {
@@ -571,6 +555,7 @@ export async function downscaleForNativeVideo(
     method: 'POST',
     headers: { 'Content-Type': file.type || 'video/mp4' },
     body: file,
+    signal,
     // @ts-expect-error — duplex is valid but missing from current TS lib types
     duplex: 'half',
   });
@@ -580,6 +565,7 @@ export async function downscaleForNativeVideo(
   }
 
   const blob = await response.blob();
+  if (!blob.size) throw new Error('Downscale returned an empty output');
   const sizeMB = (sz: number) => (sz / (1024 * 1024)).toFixed(0);
   console.log(`Native video downscale: ${sizeMB(file.size)}MB → ${sizeMB(blob.size)}MB`);
 
@@ -593,20 +579,21 @@ export const analyzeVideoNative = async (
   onProgress?: (phase: string, detail?: string) => void,
   transcodedUrl?: string,
   onProxyReady?: (proxyFile: File) => void,
-): Promise<ClipSegment[]> => {
+  signal?: AbortSignal,
+): Promise<RawClipSegment[]> => {
   let fileToSend = videoFile;
   if (transcodedUrl) {
     onProgress?.('preparing', 'Using transcoded video for native analysis...');
     fileToSend = await blobUrlToFile(transcodedUrl, videoFile.name);
   }
 
-  fileToSend = await downscaleForNativeVideo(fileToSend, onProgress);
+  fileToSend = await downscaleForNativeVideo(fileToSend, onProgress, signal);
   // Surface the downscaled 480p proxy so the caller can reuse it for smooth
   // preview playback (the 4K/100fps original stutters in-browser).
   onProxyReady?.(fileToSend);
 
   onProgress?.('preparing', 'Reading video metadata...');
-  const duration = await getVideoDuration(fileToSend);
+  const duration = await getVideoDuration(fileToSend, signal);
 
   const fileSizeMB = fileToSend.size / (1024 * 1024);
   onProgress?.('preparing', `Encoding ${fileSizeMB.toFixed(0)}MB video to base64...`);
@@ -654,7 +641,8 @@ export const analyzeVideoNative = async (
   const response = await fetch(`${endpoint}/chat/completions`, {
     method: 'POST',
     headers,
-    body: JSON.stringify(requestBody)
+    body: JSON.stringify(requestBody),
+    signal,
   });
 
   if (!response.ok) {
@@ -662,54 +650,10 @@ export const analyzeVideoNative = async (
     throw new Error(`API request failed: ${response.status} - ${errorText}`);
   }
 
-  if (!response.body) {
-    throw new Error('Streaming response has no body');
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let contentText = '';
-  let reasoningText = '';
-  let finishReason: string | null = null;
-  let lastTick = Date.now();
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-
-    let idx: number;
-    while ((idx = buffer.indexOf('\n\n')) !== -1) {
-      const frame = buffer.slice(0, idx);
-      buffer = buffer.slice(idx + 2);
-
-      for (const line of frame.split('\n')) {
-        if (!line.startsWith('data:')) continue;
-        const payload = line.slice(5).trim();
-        if (!payload || payload === '[DONE]') continue;
-
-        try {
-          const chunk = JSON.parse(payload);
-          const delta = chunk.choices?.[0]?.delta || {};
-          if (typeof delta.content === 'string') contentText += delta.content;
-          if (typeof delta.reasoning_content === 'string') reasoningText += delta.reasoning_content;
-          const fr = chunk.choices?.[0]?.finish_reason;
-          if (fr) finishReason = fr;
-        } catch {
-          // Tolerate malformed chunks
-        }
-      }
-    }
-
-    const now = Date.now();
-    if (now - lastTick > 5000) {
-      const chars = contentText.length + reasoningText.length;
-      onProgress?.('analyzing', `Streaming response... ${chars} chars received`);
-      lastTick = now;
-    }
-  }
+  const parsedStream = await parseOpenAIResponse(response, signal, chars => onProgress?.('analyzing', `Streaming response... ${chars} chars received`));
+  const contentText = parsedStream.content;
+  const reasoningText = parsedStream.reasoning;
+  const finishReason = parsedStream.finishReason;
 
   onProgress?.('parsing', 'Parsing results...');
 

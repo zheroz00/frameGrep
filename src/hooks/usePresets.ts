@@ -1,50 +1,12 @@
 import { useState, useEffect, useRef, useMemo, useCallback, type ChangeEvent, type RefObject } from 'react';
 import { PromptPreset, PresetCategory } from '../types';
 import { DEFAULT_PRESETS } from '../constants/defaultPresets';
+import { applyPresetState, createPresetState, parsePresetBackup } from '../domain/presets';
+import { loadWorkspaceDirectory, setWorkspaceDirectory } from '../services/workspaceDirectory';
 
 const STORAGE_KEY = 'fpv_presets';
 const AUTO_BACKUP_KEY = 'fpv_auto_backup';
 const LAST_BACKUP_KEY = 'fpv_last_backup';
-const IDB_DB_NAME = 'fpv_editor_db';
-const IDB_STORE_NAME = 'handles';
-const IDB_HANDLE_KEY = 'directoryHandle';
-
-// IndexedDB helpers for persisting FileSystemDirectoryHandle
-const openDB = (): Promise<IDBDatabase> => {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(IDB_DB_NAME, 1);
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
-    request.onupgradeneeded = () => {
-      request.result.createObjectStore(IDB_STORE_NAME);
-    };
-  });
-};
-
-const storeDirectoryHandle = async (handle: FileSystemDirectoryHandle): Promise<void> => {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(IDB_STORE_NAME, 'readwrite');
-    tx.objectStore(IDB_STORE_NAME).put(handle, IDB_HANDLE_KEY);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-};
-
-const getStoredDirectoryHandle = async (): Promise<FileSystemDirectoryHandle | null> => {
-  try {
-    const db = await openDB();
-    return new Promise((resolve) => {
-      const tx = db.transaction(IDB_STORE_NAME, 'readonly');
-      const request = tx.objectStore(IDB_STORE_NAME).get(IDB_HANDLE_KEY);
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => resolve(null);
-    });
-  } catch {
-    return null;
-  }
-};
-
 /** Safe localStorage write that handles quota errors */
 const safeLocalStorageSet = (key: string, value: string): boolean => {
   try {
@@ -129,7 +91,7 @@ export function usePresets(): UsePresetsReturn {
     if (!supportsFileSystemAccess) return;
 
     const checkForStoredHandle = async () => {
-      const storedHandle = await getStoredDirectoryHandle();
+      const storedHandle = await loadWorkspaceDirectory();
       if (storedHandle) {
         // Store for later reconnection on user click
         pendingHandleRef.current = storedHandle;
@@ -153,7 +115,7 @@ export function usePresets(): UsePresetsReturn {
       return; // No folder linked, skip auto-backup silently
     }
 
-    const data = JSON.stringify(presetsToBackup, null, 2);
+    const data = JSON.stringify(createPresetState(DEFAULT_PRESETS, presetsToBackup), null, 2);
 
     if (handle) {
       try {
@@ -186,7 +148,7 @@ export function usePresets(): UsePresetsReturn {
     a.href = url;
     a.download = filename;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
   // Debounced auto-backup trigger
@@ -223,21 +185,26 @@ export function usePresets(): UsePresetsReturn {
     return presets.filter(p => (p.category || 'custom') === activeCategory);
   }, [presets, activeCategory]);
 
-  // Load presets on mount
-  useEffect(() => {
+  const loadStoredPresets = useCallback(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        const customOnly = parsed.filter((p: PromptPreset) => !p.isDefault);
-        setPresets([...DEFAULT_PRESETS, ...customOnly]);
-      } catch {
-        setPresets(DEFAULT_PRESETS);
-      }
+      const state = parsePresetBackup(JSON.parse(saved), DEFAULT_PRESETS);
+      setPresets(applyPresetState(DEFAULT_PRESETS, state));
     } else {
       setPresets(DEFAULT_PRESETS);
-      safeLocalStorageSet(STORAGE_KEY, JSON.stringify(DEFAULT_PRESETS));
+      safeLocalStorageSet(STORAGE_KEY, JSON.stringify(createPresetState(DEFAULT_PRESETS, DEFAULT_PRESETS)));
     }
+  }, []);
+
+  useEffect(() => {
+    try { loadStoredPresets(); } catch { setPresets(DEFAULT_PRESETS); }
+    const reload = () => { try { loadStoredPresets(); } catch { /* invalid imports are never stored */ } };
+    window.addEventListener('framegrep:data-imported', reload);
+    return () => window.removeEventListener('framegrep:data-imported', reload);
+  }, [loadStoredPresets]);
+
+  useEffect(() => () => {
+    if (backupTimeoutRef.current) clearTimeout(backupTimeoutRef.current);
   }, []);
 
   // Sync state when active preset changes
@@ -278,11 +245,11 @@ export function usePresets(): UsePresetsReturn {
   }, [activePresetId, presets]);
 
   // Disk persistence
-  const syncToDisk = async (preset: PromptPreset) => {
-    if (!directoryHandle) return;
+  const syncToDisk = async (preset: PromptPreset, targetHandle = directoryHandle) => {
+    if (!targetHandle) return;
     try {
       const fileName = `${preset.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.txt`;
-      const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true });
+      const fileHandle = await targetHandle.getFileHandle(fileName, { create: true });
       const writable = await fileHandle.createWritable();
       const diskContent = `CLIP_LIMIT: ${preset.maxDuration}s\n\n${preset.instruction}`;
       await writable.write(diskContent);
@@ -322,10 +289,10 @@ export function usePresets(): UsePresetsReturn {
       setDirectoryHandle(handle);
       directoryHandleRef.current = handle;
       // Persist handle to IndexedDB for restoration on reload
-      await storeDirectoryHandle(handle);
+      await setWorkspaceDirectory(handle);
       setHasPendingHandle(false);
       for (const p of presets) {
-        await syncToDisk(p);
+        await syncToDisk(p, handle);
       }
     } catch (err) {
       // Silently ignore if user cancelled the dialog
@@ -338,7 +305,7 @@ export function usePresets(): UsePresetsReturn {
     setCurrentInstruction(instruction);
     const updated = presets.map(p => p.id === activePresetId ? { ...p, instruction } : p);
     setPresets(updated);
-    safeLocalStorageSet(STORAGE_KEY, JSON.stringify(updated));
+    safeLocalStorageSet(STORAGE_KEY, JSON.stringify(createPresetState(DEFAULT_PRESETS, updated)));
     triggerAutoBackup();
   };
 
@@ -346,7 +313,7 @@ export function usePresets(): UsePresetsReturn {
     setCurrentMaxDuration(val);
     const updated = presets.map(p => p.id === activePresetId ? { ...p, maxDuration: val } : p);
     setPresets(updated);
-    safeLocalStorageSet(STORAGE_KEY, JSON.stringify(updated));
+    safeLocalStorageSet(STORAGE_KEY, JSON.stringify(createPresetState(DEFAULT_PRESETS, updated)));
     triggerAutoBackup();
   };
 
@@ -363,7 +330,7 @@ export function usePresets(): UsePresetsReturn {
     setPresets(updated);
     setActivePresetId(newPreset.id);
     setActiveCategory('custom'); // Switch to custom tab to show new preset
-    safeLocalStorageSet(STORAGE_KEY, JSON.stringify(updated));
+    safeLocalStorageSet(STORAGE_KEY, JSON.stringify(createPresetState(DEFAULT_PRESETS, updated)));
     setNewPresetName('');
     if (directoryHandle) await syncToDisk(newPreset);
     triggerAutoBackup();
@@ -380,7 +347,7 @@ export function usePresets(): UsePresetsReturn {
         const updated = presets.filter(p => p.id !== id);
         setPresets(updated);
         if (activePresetId === id) setActivePresetId('cinematic');
-        safeLocalStorageSet(STORAGE_KEY, JSON.stringify(updated));
+        safeLocalStorageSet(STORAGE_KEY, JSON.stringify(createPresetState(DEFAULT_PRESETS, updated)));
         triggerAutoBackup();
       }
     };
@@ -392,7 +359,7 @@ export function usePresets(): UsePresetsReturn {
     onConfirm: () => {
       setPresets(DEFAULT_PRESETS);
       setActivePresetId('cinematic');
-      safeLocalStorageSet(STORAGE_KEY, JSON.stringify(DEFAULT_PRESETS));
+      safeLocalStorageSet(STORAGE_KEY, JSON.stringify(createPresetState(DEFAULT_PRESETS, DEFAULT_PRESETS)));
       triggerAutoBackup();
     }
   });
@@ -400,37 +367,26 @@ export function usePresets(): UsePresetsReturn {
   const handleImportPresets = async (e: ChangeEvent<HTMLInputElement>): Promise<{ imported: number; error?: string }> => {
     const file = e.target.files?.[0];
     if (!file) return { imported: 0 };
-
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-
-      reader.onload = (event) => {
-        try {
-          const imported = JSON.parse(event.target?.result as string) as PromptPreset[];
-          const customOnly = imported.filter(p => !p.isDefault);
-
-          // Track which ones are actually new (not already in presets by ID)
-          const existingIds = new Set(presets.map(p => p.id));
-          const newPresets = customOnly.filter(p => !existingIds.has(p.id));
-
-          if (newPresets.length > 0) {
-            const merged = [...presets, ...newPresets];
-            setPresets(merged);
-            safeLocalStorageSet(STORAGE_KEY, JSON.stringify(merged));
-          }
-
-          resolve({ imported: newPresets.length });
-        } catch {
-          resolve({ imported: 0, error: "Invalid preset file format." });
-        }
+    try {
+      const importedState = parsePresetBackup(JSON.parse(await file.text()), DEFAULT_PRESETS);
+      const currentState = createPresetState(DEFAULT_PRESETS, presets);
+      const existingIds = new Set(currentState.customPresets.map(preset => preset.id));
+      const newCustom = importedState.customPresets.filter(preset => !existingIds.has(preset.id));
+      const mergedState = {
+        schemaVersion: 2 as const,
+        overrides: { ...currentState.overrides, ...importedState.overrides },
+        customPresets: [...currentState.customPresets, ...newCustom],
       };
-
-      reader.onerror = () => {
-        resolve({ imported: 0, error: "Failed to read file." });
-      };
-
-      reader.readAsText(file);
-    });
+      const merged = applyPresetState(DEFAULT_PRESETS, mergedState);
+      setPresets(merged);
+      safeLocalStorageSet(STORAGE_KEY, JSON.stringify(mergedState));
+      triggerAutoBackup();
+      return { imported: newCustom.length + Object.keys(importedState.overrides).length };
+    } catch (error) {
+      return { imported: 0, error: error instanceof Error ? error.message : 'Invalid preset file format.' };
+    } finally {
+      e.target.value = '';
+    }
   };
 
   return {

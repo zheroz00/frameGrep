@@ -1,5 +1,5 @@
 import { GoogleGenAI, Schema, Type, HarmBlockThreshold, HarmCategory, MediaResolution } from "@google/genai";
-import { ClipSegment, GeminiModel, GeminiMediaResolution } from "../types";
+import { RawClipSegment, GeminiModel, GeminiMediaResolution } from "../types";
 
 // Schema definition for structured JSON output
 const clipSchema: Schema = {
@@ -70,6 +70,22 @@ const clipSchema: Schema = {
 export type UploadPhase = 'preparing' | 'uploading' | 'processing';
 export type ProgressCallback = (phase: UploadPhase, detail?: { attempt?: number; maxAttempts?: number }) => void;
 
+/** Manual smoke-check helper for confirming the Files API honors custom video FPS. */
+export const countVideoTokens = async (
+  apiKey: string,
+  fileUri: string,
+  mimeType: string,
+  model: GeminiModel,
+  fps: number,
+): Promise<number> => {
+  const ai = new GoogleGenAI({ apiKey });
+  const response = await ai.models.countTokens({
+    model,
+    contents: { parts: [{ fileData: { fileUri, mimeType }, videoMetadata: { fps } }] },
+  });
+  return response.totalTokens ?? 0;
+};
+
 /**
  * Uploads a file to Gemini using the Files API.
  * Polls for processing completion with a 5-minute timeout.
@@ -78,7 +94,8 @@ export type ProgressCallback = (phase: UploadPhase, detail?: { attempt?: number;
 export const uploadVideo = async (
   apiKey: string,
   file: File,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  signal?: AbortSignal,
 ): Promise<string> => {
   if (!apiKey) throw new Error("API Key is required");
   const ai = new GoogleGenAI({ apiKey });
@@ -102,11 +119,15 @@ export const uploadVideo = async (
     let attempts = 0;
 
     while (fileState === "PROCESSING") {
+      signal?.throwIfAborted();
       if (attempts++ >= MAX_POLL_ATTEMPTS) {
         throw new Error("Video processing timed out after 5 minutes. Try a smaller file or different format.");
       }
       onProgress?.('processing', { attempt: attempts, maxAttempts: MAX_POLL_ATTEMPTS });
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, POLL_INTERVAL_MS);
+        signal?.addEventListener('abort', () => { clearTimeout(timer); reject(signal.reason); }, { once: true });
+      });
       const fileStatus = await ai.files.get({ name: fileName });
       fileState = fileStatus.state;
 
@@ -130,10 +151,11 @@ export const analyzeVideo = async (
   fileUri: string,
   mimeType: string,
   systemInstruction: string,
-  model: GeminiModel = 'gemini-3.1-flash-lite',
+  model: GeminiModel = 'gemini-2.5-flash-lite',
   mediaResolution: GeminiMediaResolution = 'low',
-  fps: number = 1
-): Promise<ClipSegment[]> => {
+  fps: number = 1,
+  signal?: AbortSignal,
+): Promise<RawClipSegment[]> => {
   if (!apiKey) throw new Error("API Key is required");
 
   const ai = new GoogleGenAI({ apiKey });
@@ -145,6 +167,7 @@ export const analyzeVideo = async (
     mediaResolution === 'low' ? MediaResolution.MEDIA_RESOLUTION_LOW : MediaResolution.MEDIA_RESOLUTION_UNSPECIFIED;
 
   try {
+    signal?.throwIfAborted();
     const response = await ai.models.generateContent({
       model,
       contents: {
@@ -186,7 +209,8 @@ export const analyzeVideo = async (
     const text = response.text;
     if (!text) throw new Error("No response from Gemini");
 
-    return JSON.parse(text) as ClipSegment[];
+    signal?.throwIfAborted();
+    return JSON.parse(text) as RawClipSegment[];
   } catch (error) {
     console.error("Gemini Analysis Failed:", error);
     throw error;

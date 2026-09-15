@@ -1,36 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Project, ClipSegment, AnalysisProvider, SelectedMusicTrack } from '../types';
+import { Project, ClipSegment, AnalysisProvider, SelectedMusicTrack, VideoSource } from '../types';
+import { migrateProject } from '../domain/project';
+import { loadWorkspaceDirectory, subscribeWorkspaceDirectory } from '../services/workspaceDirectory';
 
 const STORAGE_KEY = 'fpv_projects';
 const AUTO_BACKUP_KEY = 'fpv_projects_auto_backup';
 const LAST_BACKUP_KEY = 'fpv_projects_last_backup';
-
-// IndexedDB constants - shared with usePresets for directory handle
-const IDB_DB_NAME = 'fpv_editor_db';
-const IDB_STORE_NAME = 'handles';
-const IDB_HANDLE_KEY = 'directoryHandle';
-
-// Retrieve directory handle from IndexedDB (shared with usePresets)
-const getStoredDirectoryHandle = async (): Promise<FileSystemDirectoryHandle | null> => {
-  try {
-    return new Promise((resolve) => {
-      const request = indexedDB.open(IDB_DB_NAME, 1);
-      request.onerror = () => resolve(null);
-      request.onsuccess = () => {
-        const db = request.result;
-        const tx = db.transaction(IDB_STORE_NAME, 'readonly');
-        const getRequest = tx.objectStore(IDB_STORE_NAME).get(IDB_HANDLE_KEY);
-        getRequest.onsuccess = () => resolve(getRequest.result || null);
-        getRequest.onerror = () => resolve(null);
-      };
-      request.onupgradeneeded = () => {
-        request.result.createObjectStore(IDB_STORE_NAME);
-      };
-    });
-  } catch {
-    return null;
-  }
-};
 
 /** Safe localStorage write that handles quota errors */
 const safeLocalStorageSet = (key: string, value: string): boolean => {
@@ -76,8 +51,8 @@ export interface UseProjectsReturn {
   lastBackupTime: string | null;
 
   // Actions
-  createProject: (clips: ClipSegment[], videoFilenames: string[], metadata: ProjectMetadata, name?: string) => Project;
-  updateProject: (id: string, clips: ClipSegment[], videoFilenames: string[], metadata: ProjectMetadata) => void;
+  createProject: (clips: ClipSegment[], sources: VideoSource[], metadata: ProjectMetadata, name?: string) => Project;
+  updateProject: (id: string, clips: ClipSegment[], sources: VideoSource[], metadata: ProjectMetadata) => void;
   deleteProject: (id: string) => { title: string; message: string; onConfirm: () => void };
   renameProject: (id: string, name: string) => void;
 
@@ -115,10 +90,15 @@ export function useProjects(): UseProjectsReturn {
     projectsRef.current = projects;
   }, [projects]);
 
+  useEffect(() => () => {
+    if (backupTimeoutRef.current) clearTimeout(backupTimeoutRef.current);
+  }, []);
+
   // Retrieve directory handle from IndexedDB on mount (for silent backups)
   useEffect(() => {
+    const unsubscribe = subscribeWorkspaceDirectory(handle => { directoryHandleRef.current = handle; });
     const loadHandle = async () => {
-      const handle = await getStoredDirectoryHandle();
+      const handle = await loadWorkspaceDirectory();
       if (handle) {
         try {
           // @ts-ignore - requestPermission may not be in types
@@ -132,6 +112,7 @@ export function useProjects(): UseProjectsReturn {
       }
     };
     loadHandle();
+    return unsubscribe;
   }, []);
 
   // Helper to trigger download
@@ -142,7 +123,7 @@ export function useProjects(): UseProjectsReturn {
     a.href = url;
     a.download = filename;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
   // Auto-backup function - only writes silently to linked folder
@@ -212,20 +193,26 @@ export function useProjects(): UseProjectsReturn {
     localStorage.setItem(AUTO_BACKUP_KEY, String(enabled));
   }, []);
 
-  // Load projects on mount
-  useEffect(() => {
+  const loadStoredProjects = useCallback(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as Project[];
-        setProjects(parsed);
-      } catch {
-        console.error('Failed to parse saved projects');
-        setProjects([]);
-      }
+    if (!saved) {
+      setProjects([]);
+      return;
     }
-    setIsLoading(false);
+    const parsed = JSON.parse(saved);
+    if (!Array.isArray(parsed)) throw new Error('Saved projects must be an array');
+    const migrated = parsed.map(migrateProject);
+    setProjects(migrated);
+    safeLocalStorageSet(STORAGE_KEY, JSON.stringify(migrated));
   }, []);
+
+  useEffect(() => {
+    try { loadStoredProjects(); } catch { setProjects([]); }
+    setIsLoading(false);
+    const reload = () => { try { loadStoredProjects(); } catch { /* invalid import was never written */ } };
+    window.addEventListener('framegrep:data-imported', reload);
+    return () => window.removeEventListener('framegrep:data-imported', reload);
+  }, [loadStoredProjects]);
 
   // Save to localStorage whenever projects change
   const saveToStorage = useCallback((updatedProjects: Project[]) => {
@@ -235,18 +222,19 @@ export function useProjects(): UseProjectsReturn {
   // Create new project
   const createProject = useCallback((
     clips: ClipSegment[],
-    videoFilenames: string[],
+    sources: VideoSource[],
     metadata: ProjectMetadata,
     name?: string
   ): Project => {
     const now = new Date().toISOString();
     const newProject: Project = {
+      schemaVersion: 2,
       id: generateId(),
-      name: name || generateProjectName(videoFilenames),
+      name: name || generateProjectName(sources.map(source => source.filename)),
       createdAt: now,
       updatedAt: now,
       clips,
-      videoFilenames,
+      sources,
       presetId: metadata.presetId,
       presetInstruction: metadata.presetInstruction,
       provider: metadata.provider,
@@ -266,7 +254,7 @@ export function useProjects(): UseProjectsReturn {
   const updateProject = useCallback((
     id: string,
     clips: ClipSegment[],
-    videoFilenames: string[],
+    sources: VideoSource[],
     metadata: ProjectMetadata
   ) => {
     const updated = projects.map(p =>
@@ -274,7 +262,7 @@ export function useProjects(): UseProjectsReturn {
         ? {
             ...p,
             clips,
-            videoFilenames,
+            sources,
             presetId: metadata.presetId,
             presetInstruction: metadata.presetInstruction,
             provider: metadata.provider,
@@ -338,7 +326,7 @@ export function useProjects(): UseProjectsReturn {
     a.href = url;
     a.download = `${project.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.json`;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   }, [projects]);
 
   // Export all projects as JSON (manual export, dated filename)
@@ -352,60 +340,23 @@ export function useProjects(): UseProjectsReturn {
     a.href = url;
     a.download = `fpv-projects-${new Date().toISOString().split('T')[0]}.json`;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   }, [projects]);
 
   // Import projects from JSON file
   const importProjects = useCallback(async (file: File): Promise<{ imported: number; errors: string[] }> => {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      const errors: string[] = [];
-      let imported = 0;
-
-      reader.onload = (event) => {
-        try {
-          const content = event.target?.result as string;
-          const parsed = JSON.parse(content);
-
-          // Handle single project or array of projects
-          const projectsToImport: Project[] = Array.isArray(parsed) ? parsed : [parsed];
-
-          // Validate and import
-          const validProjects: Project[] = [];
-          for (const p of projectsToImport) {
-            if (!p.id || !p.name || !Array.isArray(p.clips)) {
-              errors.push(`Invalid project format: ${p.name || 'unknown'}`);
-              continue;
-            }
-            // Assign new ID to avoid conflicts
-            validProjects.push({
-              ...p,
-              id: generateId(),
-              updatedAt: new Date().toISOString(),
-            });
-            imported++;
-          }
-
-          if (validProjects.length > 0) {
-            const updated = [...validProjects, ...projects];
-            setProjects(updated);
-            saveToStorage(updated);
-            triggerAutoBackup();
-          }
-
-          resolve({ imported, errors });
-        } catch (e) {
-          errors.push('Failed to parse JSON file');
-          resolve({ imported: 0, errors });
-        }
-      };
-
-      reader.onerror = () => {
-        resolve({ imported: 0, errors: ['Failed to read file'] });
-      };
-
-      reader.readAsText(file);
-    });
+    try {
+      const parsed = JSON.parse(await file.text());
+      const inputs = Array.isArray(parsed) ? parsed : [parsed];
+      const migrated = inputs.map(migrateProject).map(project => ({ ...project, id: generateId(), updatedAt: new Date().toISOString() }));
+      const updated = [...migrated, ...projects];
+      setProjects(updated);
+      saveToStorage(updated);
+      triggerAutoBackup();
+      return { imported: migrated.length, errors: [] };
+    } catch (error) {
+      return { imported: 0, errors: [error instanceof Error ? error.message : 'Failed to parse JSON file'] };
+    }
   }, [projects, saveToStorage, triggerAutoBackup]);
 
   return {

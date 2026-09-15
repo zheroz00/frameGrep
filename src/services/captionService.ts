@@ -66,15 +66,15 @@ function buildClipContext(clip: ClipSegment): string {
   const parts: string[] = [];
 
   parts.push(`Description: ${clip.description}`);
-  parts.push(`Excitement: ${clip.excitement_score}/10`);
+  parts.push(`Excitement: ${clip.excitementScore}/10`);
 
   if (clip.mood) parts.push(`Mood: ${clip.mood}`);
-  if (clip.energy_level) parts.push(`Energy: ${clip.energy_level}`);
+  if (clip.energyLevel) parts.push(`Energy: ${clip.energyLevel}`);
   if (clip.lighting) parts.push(`Lighting: ${clip.lighting}`);
-  if (clip.dominant_colors?.length) {
-    parts.push(`Colors: ${clip.dominant_colors.join(", ")}`);
+  if (clip.dominantColors?.length) {
+    parts.push(`Colors: ${clip.dominantColors.join(", ")}`);
   }
-  if (clip.section_type) parts.push(`Type: ${clip.section_type}`);
+  if (clip.sectionType) parts.push(`Type: ${clip.sectionType}`);
 
   return parts.join("\n");
 }
@@ -84,13 +84,13 @@ function buildClipContext(clip: ClipSegment): string {
  */
 function buildVideoContext(clips: ClipSegment[]): string {
   const highlights = clips
-    .filter((c) => c.excitement_score >= 7)
+    .filter((c) => c.excitementScore >= 7)
     .slice(0, 5)
-    .map((c) => `- ${c.description} (${c.mood || "dynamic"}, ${c.excitement_score}/10)`)
+    .map((c) => `- ${c.description} (${c.mood || "dynamic"}, ${c.excitementScore}/10)`)
     .join("\n");
 
   const moods = [...new Set(clips.map((c) => c.mood).filter(Boolean))];
-  const avgExcitement = clips.reduce((sum, c) => sum + c.excitement_score, 0) / clips.length;
+  const avgExcitement = clips.reduce((sum, c) => sum + c.excitementScore, 0) / clips.length;
 
   return `Video Summary:
 Total clips: ${clips.length}

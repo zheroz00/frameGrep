@@ -5,6 +5,7 @@
 
 import MediaInfoFactory, { type MediaInfo } from 'mediainfo.js';
 import { VideoMetadata } from '../types';
+import { normalizeFrameRate, parseMediaInfoDuration } from '../domain/media';
 
 // Singleton instance of MediaInfo
 let mediaInfoInstance: MediaInfo<'JSON'> | null = null;
@@ -58,16 +59,12 @@ export async function extractVideoMetadata(file: File): Promise<VideoMetadata> {
       return getDefaultMetadata(file.name);
     }
 
-    // Extract FPS - MediaInfo can report it in several formats
-    let fps = 30; // Default fallback
-    if (videoTrack.FrameRate) {
-      fps = parseFloat(videoTrack.FrameRate);
-    } else if (videoTrack.FrameRate_Num && videoTrack.FrameRate_Den) {
-      fps = videoTrack.FrameRate_Num / videoTrack.FrameRate_Den;
-    }
-
-    // Round to common frame rates to avoid weird decimals
-    fps = normalizeFrameRate(fps);
+    const frameRate = normalizeFrameRate(
+      videoTrack.FrameRate,
+      videoTrack.FrameRate_Num,
+      videoTrack.FrameRate_Den,
+      videoTrack.FrameRate_Mode,
+    );
 
     // Extract resolution
     const width = parseInt(videoTrack.Width) || 1920;
@@ -80,14 +77,13 @@ export async function extractVideoMetadata(file: File): Promise<VideoMetadata> {
     const generalTrack = parsed.media?.track?.find(
       (t: { '@type': string }) => t['@type'] === 'General'
     );
-    const durationMs = parseFloat(generalTrack?.Duration || videoTrack.Duration || '0');
-    const duration = durationMs > 0 ? Math.round(durationMs) / 1000 : 0;
+    const duration = parseMediaInfoDuration(generalTrack?.Duration, videoTrack.Duration);
 
-    console.log(`MediaInfo extracted for ${file.name}:`, { fps, width, height, codec, duration });
+    console.log(`MediaInfo extracted for ${file.name}:`, { frameRate, width, height, codec, duration });
 
     return {
       filename: file.name,
-      fps,
+      frameRate,
       width,
       height,
       codec,
@@ -100,35 +96,12 @@ export async function extractVideoMetadata(file: File): Promise<VideoMetadata> {
 }
 
 /**
- * Normalize frame rate to common values
- * Handles cases like 29.97 → 30, 23.976 → 24, 59.94 → 60
- */
-function normalizeFrameRate(fps: number): number {
-  const commonRates = [24, 25, 30, 48, 50, 60, 100, 120, 240];
-
-  // Check for NTSC variants (29.97, 59.94, etc.)
-  for (const rate of commonRates) {
-    // NTSC rates are rate * 1000/1001
-    const ntscRate = rate * 1000 / 1001;
-    if (Math.abs(fps - ntscRate) < 0.1) {
-      return rate; // Return the clean number
-    }
-    if (Math.abs(fps - rate) < 0.5) {
-      return rate;
-    }
-  }
-
-  // If not a common rate, round to nearest integer
-  return Math.round(fps);
-}
-
-/**
  * Default metadata when extraction fails
  */
 function getDefaultMetadata(filename: string): VideoMetadata {
   return {
     filename,
-    fps: 30,
+    frameRate: normalizeFrameRate(30, 30, 1),
     width: 1920,
     height: 1080,
     codec: 'unknown',

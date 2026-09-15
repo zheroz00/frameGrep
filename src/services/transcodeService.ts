@@ -2,7 +2,7 @@
  * Transcode Service
  *
  * Server-only path: POST raw bytes to /api/transcode (Vite middleware spawns
- * an NVENC ffmpeg child process on the dev host — typically 3-5s for a 4K clip).
+ * an ffmpeg child process on the dev host (NVENC when available, libx264 otherwise).
  *
  * No client-side fallback. If the server endpoint fails, we throw a clear
  * user-facing error so the caller can surface it immediately rather than
@@ -35,7 +35,7 @@ const SIZE_THRESHOLD = 2 * 1024 * 1024 * 1024; // 2 GB (Gemini Files API max)
 const MAX_WIDTH = 3840; // 4K — Gemini downsamples internally
 const MAX_HEIGHT = 2160;
 const MAX_BITRATE = 100_000_000; // 100 Mbps — covers 4K drone footage
-const TARGET_HEIGHT = 720;       // Server-side NVENC output height ceiling
+const TARGET_HEIGHT = 720;       // Server-side output height ceiling
 const TARGET_FPS = 30;           // Analysis-optimal frame-rate cap (models sample ~1-4 fps)
 
 // --- Public API ---
@@ -79,8 +79,9 @@ export async function shouldTranscode(
       if (meta.height > TARGET_HEIGHT) {
         return { transcode: true, reason: `Downsampling ${meta.height}p → ${TARGET_HEIGHT}p for analysis` };
       }
-      if (meta.fps > TARGET_FPS) {
-        return { transcode: true, reason: `Capping ${Math.round(meta.fps)}fps → ${TARGET_FPS}fps for analysis` };
+      const framesPerSecond = meta.frameRate.numerator / meta.frameRate.denominator;
+      if (framesPerSecond > TARGET_FPS) {
+        return { transcode: true, reason: `Capping ${Math.round(framesPerSecond)}fps → ${TARGET_FPS}fps for analysis` };
       }
     }
   } catch (e) {
@@ -92,18 +93,20 @@ export async function shouldTranscode(
 }
 
 /**
- * Transcodes a video file via the server-side NVENC endpoint. On failure,
+ * Transcodes a video file via the server-side FFmpeg endpoint (NVENC when available,
+ * otherwise libx264). On failure,
  * throws a user-friendly error — no silent fallback.
  */
 export async function transcodeVideo(
   file: File,
-  onProgress?: (progress: TranscodeProgress) => void
+  onProgress?: (progress: TranscodeProgress) => void,
+  signal?: AbortSignal,
 ): Promise<File> {
   try {
-    const result = await transcodeViaServer(file, onProgress);
+    const result = await transcodeViaServer(file, onProgress, signal);
     const reduction = ((1 - result.size / file.size) * 100).toFixed(0);
     console.log(
-      `Server-side NVENC transcode ${file.name}: ${(file.size / (1024 * 1024)).toFixed(0)}MB → ${(result.size / (1024 * 1024)).toFixed(0)}MB (${reduction}% reduction)`
+      `Server-side transcode ${file.name}: ${(file.size / (1024 * 1024)).toFixed(0)}MB → ${(result.size / (1024 * 1024)).toFixed(0)}MB (${reduction}% reduction)`
     );
     return result;
   } catch (e) {
@@ -121,7 +124,8 @@ export async function transcodeVideo(
  */
 async function transcodeViaServer(
   file: File,
-  onProgress?: (progress: TranscodeProgress) => void
+  onProgress?: (progress: TranscodeProgress) => void,
+  signal?: AbortSignal,
 ): Promise<File> {
   const params = new URLSearchParams({
     audio: 'true',
@@ -139,6 +143,7 @@ async function transcodeViaServer(
       'Content-Type': file.type || 'video/mp4',
     },
     body: file,
+    signal,
     // Required to allow body streaming in Chrome.
     // @ts-expect-error — duplex is valid but missing from current TS lib types
     duplex: 'half',
@@ -175,6 +180,7 @@ async function transcodeViaServer(
   onProgress?.({ phase: 'done', receivedBytes, inputBytes: file.size });
 
   const blob = new Blob(chunks as BlobPart[], { type: 'video/mp4' });
+  if (blob.size === 0) throw new Error('Server transcode returned an empty output');
   const transcodedFile = new File([blob], file.name.replace(/\.[^.]+$/, '.mp4'), {
     type: 'video/mp4',
     lastModified: Date.now(),
