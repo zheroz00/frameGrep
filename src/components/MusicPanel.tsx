@@ -17,7 +17,8 @@ interface MusicPanelProps {
   clips: ClipSegment[];
   jamendoClientId: string | undefined;
   directoryHandle: FileSystemDirectoryHandle | null;
-  onRequestFolderLink?: () => void;
+  onLinkFolder: () => void;
+  canLinkFolder: boolean;
 }
 
 const MusicPanel: React.FC<MusicPanelProps> = ({
@@ -25,7 +26,8 @@ const MusicPanel: React.FC<MusicPanelProps> = ({
   clips,
   jamendoClientId,
   directoryHandle,
-  onRequestFolderLink
+  onLinkFolder,
+  canLinkFolder
 }) => {
   const [customTags, setCustomTags] = useState('');
 
@@ -271,22 +273,26 @@ const MusicPanel: React.FC<MusicPanelProps> = ({
             </div>
           )}
 
-          {/* No Folder Warning */}
+          {/* No Folder Notice */}
           {!directoryHandle && tracks.length > 0 && !isLoading && (
             <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
               <div className="flex items-center gap-2 text-amber-400 mb-2">
                 <FolderOpen size={14} />
-                <span className="text-xs font-medium">Link a folder to download music</span>
+                <span className="text-xs font-medium">
+                  {canLinkFolder ? 'No folder linked' : "This browser can't link a folder"}
+                </span>
               </div>
               <p className="text-[10px] text-zinc-400 mb-2">
-                To select and download tracks, link a folder in Settings first.
+                {canLinkFolder
+                  ? "Picked tracks go to your browser's downloads. Link a folder to save them next to your project instead."
+                  : 'Picked tracks are saved through a normal download. Folder linking needs Chrome or Edge.'}
               </p>
-              {onRequestFolderLink && (
+              {canLinkFolder && (
                 <button
-                  onClick={onRequestFolderLink}
+                  onClick={onLinkFolder}
                   className="text-xs text-amber-400 hover:text-amber-300 underline"
                 >
-                  Open Settings
+                  Link a folder
                 </button>
               )}
             </div>
@@ -309,7 +315,7 @@ const MusicPanel: React.FC<MusicPanelProps> = ({
                     isPlaying={currentlyPlaying === track.id}
                     isSelected={selectedTrack?.track.id === track.id}
                     isDownloading={isDownloading}
-                    canSelect={!!directoryHandle}
+                    canSelect
                     onPlay={() => playTrack(track.id, track.audio)}
                     onStop={stopPlayback}
                     onSelect={() => selectTrack(track, directoryHandle)}

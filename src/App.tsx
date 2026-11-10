@@ -24,6 +24,7 @@ import { useClipReview } from './hooks/useClipReview';
 import { useFileDrop } from './hooks/useFileDrop';
 import { buildTimelineSegments, timelineSpan } from './domain/review';
 import { getEDLCompatibility, getSourceIdentityIssue } from './utils/exportUtils';
+import { resolveCaptionBackend } from './services/captionService';
 import { ExportMode, Project, ClipSegment, CaptionMode } from './types';
 
 const serializeComparable = (value: unknown): string => JSON.stringify(value ?? null);
@@ -58,6 +59,7 @@ export default function App() {
 
   // Destructure commonly used settings
   const { settings, updateProvider, updateSettings } = appSettings;
+  const captionBackend = resolveCaptionBackend(settings);
   const provider = settings.provider;
   const currentVideoSources = analysis.videoQueue.map(v => v.source);
 
@@ -293,7 +295,8 @@ export default function App() {
       <CaptionModal
         isOpen={captionModal.isOpen}
         onClose={() => setCaptionModal({ isOpen: false, mode: 'clip' })}
-        apiKey={settings.geminiApiKey}
+        backend={'error' in captionBackend ? null : captionBackend}
+        backendError={'error' in captionBackend ? captionBackend.error : undefined}
         clip={captionModal.clip}
         clips={analysis.allClips}
         initialMode={captionModal.mode}
@@ -306,7 +309,8 @@ export default function App() {
         clips={analysis.allClips}
         jamendoClientId={settings.jamendoClientId}
         directoryHandle={presets.directoryHandle}
-        onRequestFolderLink={() => setIsSettingsOpen(true)}
+        onLinkFolder={presets.connectToLocalFolder}
+        canLinkFolder={presets.supportsFileSystemAccess}
       />
 
       {/* Header */}
@@ -337,7 +341,8 @@ export default function App() {
         currentMaxDuration={presets.currentMaxDuration}
         newPresetName={presets.newPresetName}
         isOptimizing={presets.isOptimizing}
-        apiKey={settings.geminiApiKey}
+        backend={'error' in captionBackend ? null : captionBackend}
+        backendError={'error' in captionBackend ? captionBackend.error : undefined}
         directoryHandle={presets.directoryHandle}
         hasPendingHandle={presets.hasPendingHandle}
         supportsFileSystemAccess={presets.supportsFileSystemAccess}

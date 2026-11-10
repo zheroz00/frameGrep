@@ -1,125 +1,106 @@
 /**
  * Social Media Caption Generation Service
- * Uses Gemini AI to generate platform-specific captions from clip analysis data
+ * Generates platform-specific captions from clip analysis data using the active
+ * provider: Gemini directly, or any OpenAI-compatible endpoint (OpenRouter, local server).
  */
 import { GoogleGenAI } from "@google/genai";
-import type { ClipSegment, SocialCaptions, CaptionRequest } from "../types";
+import type { AppSettings, ClipSegment, SocialCaptions, CaptionRequest } from "../types";
+import { parseOpenAIResponse } from "./openAIStream";
+import { CAPTION_SYSTEM_PROMPT, buildClipContext, buildVideoContext } from "./captionPrompts";
 
-// Platform character limits
-const PLATFORM_LIMITS = {
-  instagram: { optimal: 150, max: 2200 },
-  tiktok: { optimal: 150, max: 2200 },
-  youtube: { titleMax: 100, descriptionMax: 5000 },
-  twitter: { max: 280 },
-};
+const CAPTION_TEMPERATURE = 0.8; // Slightly creative for captions
+const CAPTION_MAX_TOKENS = 2048;
+const GEMINI_CAPTION_MODEL = "gemini-2.5-flash";
 
-// Base system instruction for caption generation
-const CAPTION_SYSTEM_PROMPT = `You are a social media copywriter for FPV drone content creators.
+export type CaptionBackend =
+  | { kind: "gemini"; apiKey: string; model: string }
+  | { kind: "openai"; endpoint: string; apiKey?: string; model: string };
 
-TONE GUIDELINES:
-- Write like a skilled pilot sharing their work, not a marketer trying to go viral
-- Be confident and authentic, never desperate for attention
-- Subtle wit is welcome, but don't force it
-- Let impressive footage speak for itself
-
-AVOID:
-- ALL CAPS words for emphasis
-- Excessive emojis (1-2 max per caption)
-- Clickbait phrases: "INSANE", "YOU WON'T BELIEVE", "EPIC", "CRAZY"
-- Begging for engagement: "like and subscribe!", "follow for more!"
-- Generic filler: "Check this out!", "What do you think?"
-
-DO:
-- Reference specific moves/moments when mentioned (power loops, gaps, proximity)
-- Match each platform's culture naturally
-- Keep captions punchy and readable
-- Include relevant hashtags that real pilots use
-
-HASHTAG GUIDELINES:
-- Generate 4-6 relevant hashtags based on content
-- Use a mix of: general (#fpv #drone), style-specific (#fpvfreestyle #cinewhooping), and content-specific (#powerloop #bando)
-- No made-up or overly niche hashtags
-
-OUTPUT FORMAT:
-Return a valid JSON object with this exact structure:
-{
-  "instagram": "caption text here",
-  "tiktok": "caption text here",
-  "youtube": {
-    "title": "title here (max 100 chars)",
-    "description": "description here"
-  },
-  "twitter": "caption text here (max 280 chars)",
-  "hashtags": ["fpv", "drone", "freestyle"]
-}
-
-Platform notes:
-- Instagram: ${PLATFORM_LIMITS.instagram.optimal}-${PLATFORM_LIMITS.instagram.max} chars, can be slightly longer and more descriptive
-- TikTok: ${PLATFORM_LIMITS.tiktok.optimal} chars optimal, casual and snappy
-- YouTube: Compelling title (${PLATFORM_LIMITS.youtube.titleMax} chars max) + 2-3 sentence description
-- Twitter/X: Under ${PLATFORM_LIMITS.twitter.max} chars, punchy one-liner`;
-
-/**
- * Build context string from clip data
- */
-function buildClipContext(clip: ClipSegment): string {
-  const parts: string[] = [];
-
-  parts.push(`Description: ${clip.description}`);
-  parts.push(`Excitement: ${clip.excitementScore}/10`);
-
-  if (clip.mood) parts.push(`Mood: ${clip.mood}`);
-  if (clip.energyLevel) parts.push(`Energy: ${clip.energyLevel}`);
-  if (clip.lighting) parts.push(`Lighting: ${clip.lighting}`);
-  if (clip.dominantColors?.length) {
-    parts.push(`Colors: ${clip.dominantColors.join(", ")}`);
+/** Error carrying the HTTP status of a failed OpenAI-compatible request. */
+class CaptionHttpError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+    this.name = "CaptionHttpError";
   }
-  if (clip.sectionType) parts.push(`Type: ${clip.sectionType}`);
-
-  return parts.join("\n");
 }
 
 /**
- * Build context string from multiple clips (video summary)
+ * Pick the caption backend for the active provider, or explain why none is available.
+ * Marlin has no text model, so it falls back to Gemini when a key is set.
  */
-function buildVideoContext(clips: ClipSegment[]): string {
-  const highlights = clips
-    .filter((c) => c.excitementScore >= 7)
-    .slice(0, 5)
-    .map((c) => `- ${c.description} (${c.mood || "dynamic"}, ${c.excitementScore}/10)`)
-    .join("\n");
+export function resolveCaptionBackend(
+  settings: Pick<AppSettings, "provider" | "geminiApiKey" | "customConfig">
+): CaptionBackend | { error: string } {
+  if (settings.provider === "custom") {
+    const { endpoint, apiKey, model } = settings.customConfig;
+    return { kind: "openai", endpoint, apiKey: apiKey || undefined, model };
+  }
+  if (settings.geminiApiKey) {
+    return { kind: "gemini", apiKey: settings.geminiApiKey, model: GEMINI_CAPTION_MODEL };
+  }
+  return {
+    error:
+      settings.provider === "marlin"
+        ? "Marlin can't write captions. Add a Gemini API key in Settings, or switch to the Custom provider."
+        : "Add a Gemini API key in Settings, or switch to the Custom provider.",
+  };
+}
 
-  const moods = [...new Set(clips.map((c) => c.mood).filter(Boolean))];
-  const avgExcitement = clips.reduce((sum, c) => sum + c.excitementScore, 0) / clips.length;
+/** Model name for display: the part after the last slash of an id like "qwen/qwen3-vl-8b". */
+export function captionModelName(backend: CaptionBackend): string {
+  return backend.model.slice(backend.model.lastIndexOf("/") + 1);
+}
 
-  return `Video Summary:
-Total clips: ${clips.length}
-Average excitement: ${avgExcitement.toFixed(1)}/10
-Moods: ${moods.join(", ") || "varied"}
+function httpStatusOf(error: unknown): number | undefined {
+  const status = (error as { status?: unknown } | null)?.status;
+  if (typeof status === "number") return status;
+  // The Gemini SDK embeds the Google JSON error body in the message
+  const match = error instanceof Error ? error.message.match(/"code"\s*:\s*(\d{3})/) : null;
+  return match ? Number(match[1]) : undefined;
+}
 
-Top moments:
-${highlights || "Various highlights throughout"}`;
+/** Turn a provider failure into one clear sentence for the user. */
+export function describeCaptionError(error: unknown, backend: CaptionBackend): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const status = httpStatusOf(error);
+
+  if (status === 429 || /RESOURCE_EXHAUSTED/.test(message)) {
+    return "Rate limited by the provider. Wait a moment and try again.";
+  }
+
+  if (backend.kind === "gemini") {
+    const rejectedStatus = status === 400 || status === 401 || status === 403;
+    if (
+      /API key not valid|API_KEY_INVALID|PERMISSION_DENIED/i.test(message) ||
+      (rejectedStatus && /key|blocked/i.test(message))
+    ) {
+      return "Google rejected the Gemini API key. Check it in Settings (the key must be allowed to use the Gemini API), or switch to the Custom provider.";
+    }
+  } else if (status === 401 || status === 403) {
+    return `The Custom provider rejected the API key for ${backend.model}. Check it in Settings.`;
+  }
+
+  return message || "Failed to generate captions";
 }
 
 /**
- * Parse JSON response from Gemini, handling markdown code blocks
+ * Pull the JSON object out of model output: strips a markdown fence and any prose
+ * around it by slicing from the first "{" to the last "}".
  */
-function parseResponse(text: string): SocialCaptions {
-  // Strip markdown code blocks if present
-  let cleaned = text.trim();
-  if (cleaned.startsWith("```json")) {
-    cleaned = cleaned.slice(7);
-  } else if (cleaned.startsWith("```")) {
-    cleaned = cleaned.slice(3);
+export function extractJsonObject(text: string): string {
+  const unfenced = text.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "");
+  const start = unfenced.indexOf("{");
+  const end = unfenced.lastIndexOf("}");
+  if (start === -1 || end <= start) {
+    throw new Error("The model did not return a JSON object");
   }
-  if (cleaned.endsWith("```")) {
-    cleaned = cleaned.slice(0, -3);
-  }
-  cleaned = cleaned.trim();
+  return unfenced.slice(start, end + 1);
+}
 
-  const parsed = JSON.parse(cleaned);
+/** Parse model output into SocialCaptions, filling any missing fields. */
+export function parseCaptionResponse(text: string): SocialCaptions {
+  const parsed = JSON.parse(extractJsonObject(text));
 
-  // Ensure all required fields exist
   return {
     instagram: parsed.instagram || "",
     tiktok: parsed.tiktok || "",
@@ -132,18 +113,71 @@ function parseResponse(text: string): SocialCaptions {
   };
 }
 
+async function requestGemini(
+  backend: Extract<CaptionBackend, { kind: "gemini" }>,
+  context: string
+): Promise<string> {
+  const ai = new GoogleGenAI({ apiKey: backend.apiKey });
+  const response = await ai.models.generateContent({
+    model: backend.model,
+    contents: context,
+    config: {
+      systemInstruction: CAPTION_SYSTEM_PROMPT,
+      temperature: CAPTION_TEMPERATURE,
+    },
+  });
+  return response.text ?? "";
+}
+
+async function requestOpenAI(
+  backend: Extract<CaptionBackend, { kind: "openai" }>,
+  context: string
+): Promise<string> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (backend.apiKey) headers["Authorization"] = `Bearer ${backend.apiKey}`;
+  if (backend.endpoint.includes("openrouter.ai")) {
+    headers["HTTP-Referer"] = window.location.origin;
+    headers["X-Title"] = "frameGrep";
+  }
+
+  // No response_format: local servers reject it, so the prompt alone asks for JSON
+  const response = await fetch(`${backend.endpoint.replace(/\/+$/, "")}/chat/completions`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model: backend.model,
+      messages: [
+        { role: "system", content: CAPTION_SYSTEM_PROMPT },
+        { role: "user", content: context },
+      ],
+      temperature: CAPTION_TEMPERATURE,
+      stream: false,
+      max_tokens: CAPTION_MAX_TOKENS,
+    }),
+  });
+
+  if (!response.ok) {
+    const body = (await response.text().catch(() => "")).slice(0, 300);
+    throw new CaptionHttpError(
+      response.status,
+      `Provider returned ${response.status}${body ? `: ${body}` : ""}`
+    );
+  }
+
+  const result = await parseOpenAIResponse(response);
+  return result.content.trim() || result.reasoning;
+}
+
 /**
  * Generate social media captions for a single clip or full video
  */
 export async function generateCaptions(
-  apiKey: string,
+  backend: CaptionBackend,
   request: CaptionRequest
 ): Promise<SocialCaptions> {
-  if (!apiKey) {
+  if (backend.kind === "gemini" && !backend.apiKey) {
     throw new Error("Gemini API key is required for caption generation");
   }
-
-  const ai = new GoogleGenAI({ apiKey });
 
   // Build context based on mode
   let context: string;
@@ -160,21 +194,15 @@ export async function generateCaptions(
   }
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: context,
-      config: {
-        systemInstruction: CAPTION_SYSTEM_PROMPT,
-        temperature: 0.8, // Slightly creative for captions
-      },
-    });
-
-    const text = response.text;
-    if (!text) {
-      throw new Error("Empty response from Gemini");
+    const text =
+      backend.kind === "gemini"
+        ? await requestGemini(backend, context)
+        : await requestOpenAI(backend, context);
+    if (!text.trim()) {
+      throw new Error(`Empty response from ${backend.model}`);
     }
 
-    return parseResponse(text);
+    return parseCaptionResponse(text);
   } catch (error) {
     console.error("Caption generation failed:", error);
     throw error;
@@ -185,11 +213,11 @@ export async function generateCaptions(
  * Generate captions for a single clip
  */
 export async function generateClipCaption(
-  apiKey: string,
+  backend: CaptionBackend,
   clip: ClipSegment,
   videoFilename?: string
 ): Promise<SocialCaptions> {
-  return generateCaptions(apiKey, {
+  return generateCaptions(backend, {
     mode: "clip",
     clip,
     videoFilename,
@@ -200,11 +228,11 @@ export async function generateClipCaption(
  * Generate captions summarizing an entire video
  */
 export async function generateVideoCaption(
-  apiKey: string,
+  backend: CaptionBackend,
   clips: ClipSegment[],
   videoFilename?: string
 ): Promise<SocialCaptions> {
-  return generateCaptions(apiKey, {
+  return generateCaptions(backend, {
     mode: "video",
     clips,
     videoFilename,

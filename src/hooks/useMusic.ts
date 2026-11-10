@@ -7,6 +7,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
 import { ClipSegment, JamendoTrack, MusicSuggestion, MusicSearchMode, SelectedMusicTrack } from '../types';
 import { searchTracksForClips, searchTracks } from '../services/jamendoService';
+import { downloadBlob } from '../utils/downloadFile';
 
 export interface UseMusicReturn {
   // Panel state
@@ -223,17 +224,13 @@ export function useMusic(): UseMusicReturn {
   }, []);
 
   /**
-   * Select a track: download it to the linked folder and save the selection
+   * Select a track: download it, then save it to the linked folder, or hand it to the
+   * browser as a normal download when no folder is linked, and record the selection.
    */
   const selectTrack = useCallback(async (
     track: JamendoTrack,
     directoryHandle: FileSystemDirectoryHandle | null
   ): Promise<SelectedMusicTrack | null> => {
-    if (!directoryHandle) {
-      setError('No folder linked. Please link a folder in Settings → Data Backup first.');
-      return null;
-    }
-
     setIsDownloading(true);
     setDownloadProgress(0);
     setError(null);
@@ -288,13 +285,18 @@ export function useMusic(): UseMusicReturn {
       // Combine chunks into a single blob
       const blob = new Blob(chunks, { type: 'audio/mpeg' });
 
-      // Write to the linked folder
-      const fileHandle = await directoryHandle.getFileHandle(filename, { create: true });
-      const writable = await fileHandle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-
-      console.log('Track saved to folder:', filename);
+      if (directoryHandle) {
+        // Write to the linked folder
+        const fileHandle = await directoryHandle.getFileHandle(filename, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        console.log('Track saved to folder:', filename);
+      } else {
+        // No folder (Firefox, Brave default): save through a normal browser download
+        downloadBlob(blob, filename);
+        console.log('Track downloaded:', filename);
+      }
 
       // Create the selected track record
       const selected: SelectedMusicTrack = {

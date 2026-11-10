@@ -13,7 +13,13 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import type { ClipSegment, SocialCaptions, CaptionMode } from '../types';
-import { generateClipCaption, generateVideoCaption } from '../services/captionService';
+import {
+  generateClipCaption,
+  generateVideoCaption,
+  describeCaptionError,
+  captionModelName,
+  type CaptionBackend,
+} from '../services/captionService';
 
 // TikTok icon (not in lucide)
 const TikTokIcon = () => (
@@ -68,7 +74,8 @@ const PLATFORMS = {
 interface CaptionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  apiKey: string;
+  backend: CaptionBackend | null;
+  backendError?: string;
   clip?: ClipSegment;
   clips?: ClipSegment[];
   initialMode?: CaptionMode;
@@ -78,7 +85,8 @@ interface CaptionModalProps {
 export default function CaptionModal({
   isOpen,
   onClose,
-  apiKey,
+  backend,
+  backendError,
   clip,
   clips,
   initialMode = 'clip',
@@ -127,8 +135,8 @@ export default function CaptionModal({
   }, [videoCaptions]);
 
   const generateCaptions = async () => {
-    if (!apiKey) {
-      setError('API key required. Configure in Settings.');
+    if (!backend) {
+      setError(backendError ?? 'No caption provider is available. Check Settings.');
       return;
     }
 
@@ -138,16 +146,16 @@ export default function CaptionModal({
     try {
       let result: SocialCaptions;
       if (mode === 'clip' && clip) {
-        result = await generateClipCaption(apiKey, clip, videoFilename);
+        result = await generateClipCaption(backend, clip, videoFilename);
         setClipCaptions(result);
       } else if (mode === 'video' && clips) {
-        result = await generateVideoCaption(apiKey, clips, videoFilename);
+        result = await generateVideoCaption(backend, clips, videoFilename);
         setVideoCaptions(result);
       } else {
         throw new Error('Invalid mode or missing data');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate captions');
+      setError(describeCaptionError(err, backend));
     } finally {
       setLoading(false);
     }
@@ -415,14 +423,19 @@ export default function CaptionModal({
 
         {/* Footer */}
         <div className="p-4 border-t border-zinc-800 flex justify-between gap-3 shrink-0">
-          <button
-            onClick={generateCaptions}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed text-zinc-200 rounded-lg transition-colors"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Regenerate
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={generateCaptions}
+              disabled={loading || !backend}
+              className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed text-zinc-200 rounded-lg transition-colors"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              Regenerate
+            </button>
+            {backend && (
+              <span className="text-xs text-zinc-500">Written by {captionModelName(backend)}</span>
+            )}
+          </div>
           <div className="flex gap-3">
             <button
               onClick={copyAll}
