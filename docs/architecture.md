@@ -62,7 +62,7 @@ All source lives under `src/`. Config files (`vite.config.ts`, `tsconfig.json`, 
 - `components/layout/AppHeader.tsx`: top bar with the provider switch, model label, Projects, Music, GPU widget, Settings and Prompt Lab buttons.
 - `components/SourcePanel.tsx`: relink banner, file picker, Analyze button, queue list, progress indicator and error box (left rail).
 - `components/ExportPanel.tsx`: EDL / FFmpeg / DaVinci / Captions buttons, export mode toggle, DaVinci media folder input and FFmpeg preview (left rail).
-- `components/ClipList.tsx`: the clips column with the section-type breakdown, empty state, `ClipCard` list and loading skeleton (right rail).
+- `components/ClipList.tsx`: the clips column with the section-type breakdown, the kept / cut footage bar (`summarizeKeptCut`, follows the export mode), empty state, `ClipCard` list and loading skeleton (right rail).
 
 **Review desk** (center column, plus the pieces the clip cards share)
 - `components/VideoPlayer.tsx`: plays one span of the active video. Exposes `togglePlay()` and `getCurrentTime()` through a ref and reports `onSegmentEnd` / `onDuration`. A `playToken` prop makes replaying the same span seek again.

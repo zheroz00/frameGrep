@@ -114,6 +114,16 @@ the active category is `fpv`, so the user can browse what the model is being tau
 Analyzes clip mood, energy level, and excitement scores to build music search terms, then queries
 the Jamendo API with generated tags (genre, mood) and speed (tempo).
 
+No AI is involved. The rules, in order: the dominant mood adds three tags, the average score adds
+two (epic/powerful at 8 and up, upbeat/energetic at 6 and up, calm/ambient at 4 and under), and
+keywords in the clip descriptions add two more (drone/FPV words, nature words, sports words). The
+first six unique tags are sent as an OR search (`fuzzytags`), with tempo taken from the clips'
+energy level, or from the score when no energy level was returned.
+
+Jamendo's API sometimes answers an identical, valid search with zero results and a success code
+(measured 2026-11-10: roughly one call in three). `searchTracks` therefore retries an empty answer
+twice, then tries once without the tempo filter, before reporting that nothing was found.
+
 Two modes: "All Clips" (header button) for cohesive video-wide music, and "Single Clip" (per-clip
 button) for individual ditties. Results are royalty-free tracks with inline audio preview, free for
 personal use with attribution (Creative Commons).

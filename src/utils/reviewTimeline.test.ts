@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ClipSegment, VideoSource } from '../types';
-import { cutRanges, generateReviewFCPXML, mergeRanges } from './reviewTimeline';
+import { cutRanges, generateReviewFCPXML, mergeRanges, summarizeKeptCut } from './reviewTimeline';
 
 const source = (id: string, filename: string, duration: number, numerator = 30, denominator = 1): VideoSource => ({
   id, fingerprint: id, filename, size: 100, lastModified: 1,
@@ -32,6 +32,30 @@ describe('cutRanges', () => {
   it('returns the whole video when nothing is kept, and nothing when all of it is', () => {
     expect(cutRanges([], 10)).toEqual([{ start: 0, end: 10 }]);
     expect(cutRanges([{ start: 0, end: 10 }], 10)).toEqual([]);
+  });
+});
+
+describe('summarizeKeptCut', () => {
+  const sources = [source('a', 'a.mp4', 60), source('b', 'b.mp4', 40)];
+  const clips = [
+    clip('dead', 'a', 0, 4, { sectionType: 'dead_time' }),
+    clip('one', 'a', 4, 13, { sectionType: 'highlight' }),
+    clip('overlap', 'a', 10, 20, { sectionType: 'flow' }),
+    clip('trans', 'a', 20, 26, { sectionType: 'transition' }),
+  ];
+
+  it('counts overlapping clips once and a clipless source as fully cut', () => {
+    expect(summarizeKeptCut(clips, sources, 'highlights_only')).toEqual({ keptSeconds: 16, cutSeconds: 84, totalSeconds: 100, keptFraction: 0.16 });
+  });
+
+  it('follows the export mode', () => {
+    expect(summarizeKeptCut(clips, sources, 'full_edit')).toMatchObject({ keptSeconds: 22, cutSeconds: 78 });
+  });
+
+  it('falls back to the last clip end when a duration is unknown, and returns null with nothing to measure', () => {
+    expect(summarizeKeptCut([clip('x', 'a', 5, 10)], [source('a', 'a.mp4', 0)], 'highlights_only')).toMatchObject({ keptSeconds: 5, totalSeconds: 10 });
+    expect(summarizeKeptCut([], [source('a', 'a.mp4', 0)], 'highlights_only')).toBeNull();
+    expect(summarizeKeptCut(clips, [], 'highlights_only')).toBeNull();
   });
 });
 

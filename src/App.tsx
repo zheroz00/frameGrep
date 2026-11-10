@@ -25,6 +25,7 @@ import { useFileDrop } from './hooks/useFileDrop';
 import { usePreviewProxy } from './hooks/usePreviewProxy';
 import { buildTimelineSegments, timelineSpan } from './domain/review';
 import { rememberFolder } from './utils/recentFolders';
+import { summarizeKeptCut } from './utils/reviewTimeline';
 import { getEDLCompatibility, getSourceIdentityIssue } from './utils/exportUtils';
 import { resolveCaptionBackend } from './services/captionService';
 import { ExportMode, Project, ClipSegment, CaptionMode } from './types';
@@ -225,6 +226,13 @@ export default function App() {
     segments: buildTimelineSegments(analysis.allClips, analysis.activeSourceId, activeDuration),
     span: timelineSpan(analysis.allClips, analysis.activeSourceId, activeDuration) || activeDuration,
   }), [analysis.allClips, analysis.activeSourceId, activeDuration]);
+
+  // How much footage the current export mode keeps, across every analyzed video
+  const keptCut = useMemo(() => summarizeKeptCut(
+    analysis.allClips,
+    analysis.videoQueue.filter(item => item.status === 'complete').map(item => item.source),
+    exportMode,
+  ), [analysis.allClips, analysis.videoQueue, exportMode]);
 
   const isOverlayOpen = isPromptLabOpen || isSettingsOpen || isProjectsOpen
     || captionModal.isOpen || confirmAction.isOpen || music.isOpen;
@@ -540,6 +548,8 @@ export default function App() {
             onCaption={(clip) => setCaptionModal({ isOpen: true, clip, mode: 'clip' })}
             onMusic={(idx) => music.openPanel('single_clip', idx)}
             onRemove={analysis.removeClipAt}
+            keptCut={keptCut}
+            exportMode={exportMode}
             lastRemovedClip={analysis.lastRemovedClip}
             onUndoRemove={analysis.undoRemoveClip}
           />

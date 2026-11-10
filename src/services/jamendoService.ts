@@ -68,60 +68,70 @@ interface JamendoApiTrack {
 }
 
 /**
- * Search for tracks on Jamendo
+ * Jamendo's API sometimes answers an identical, valid query with zero results and a success
+ * code (measured: roughly one call in three). An empty answer is therefore retried before it
+ * is believed. Delays are in milliseconds, one per retry.
  */
-export async function searchTracks(
-  clientId: string,
-  options: {
-    tags?: string[];
-    speed?: string;
-    limit?: number;
-    offset?: number;
-    orderby?: 'popularity_total' | 'releasedate' | 'downloads_total';
-  } = {}
-): Promise<JamendoTrack[]> {
-  const { tags = [], speed, limit = 10, offset = 0, orderby = 'popularity_total' } = options;
+const EMPTY_RETRY_DELAYS_MS = [400, 900];
+
+const wait = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
+
+export interface TrackSearchOptions {
+  tags?: string[];
+  speed?: string;
+  limit?: number;
+  offset?: number;
+  order?: 'popularity_total' | 'releasedate' | 'downloads_total';
+  /** Override the pauses between retries of an empty answer (tests pass zeros). */
+  retryDelaysMs?: number[];
+}
+
+const requestTracks = async (clientId: string, options: TrackSearchOptions): Promise<JamendoTrack[]> => {
+  const { tags = [], speed, limit = 10, offset = 0, order = 'popularity_total' } = options;
 
   const params = new URLSearchParams({
     client_id: clientId,
     format: 'json',
     limit: String(limit),
     offset: String(offset),
-    orderby: orderby,
+    order,
     include: 'musicinfo',
     audioformat: 'mp32', // High quality streaming
   });
 
-  // Add tags (using fuzzytags for OR matching)
-  if (tags.length > 0) {
-    params.append('fuzzytags', tags.join('+'));
+  // fuzzytags matches any of the tags (OR), so more tags widen the search
+  if (tags.length > 0) params.append('fuzzytags', tags.join('+'));
+  if (speed) params.append('speed', speed);
+
+  const response = await fetch(`${JAMENDO_API_BASE}/tracks/?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error(`Jamendo API error: ${response.status}`);
   }
 
-  // Add speed filter
-  if (speed) {
-    params.append('speed', speed);
+  const data: JamendoApiResponse = await response.json();
+  if (data.headers.code !== 0) {
+    throw new Error(data.headers.error_message || 'Unknown Jamendo API error');
   }
+  return data.results.map(mapApiTrackToJamendoTrack);
+};
 
-  const url = `${JAMENDO_API_BASE}/tracks/?${params.toString()}`;
-
-  // Debug logging
-  console.log('Jamendo request URL:', url);
-  console.log('Client ID being used:', clientId);
-
+/**
+ * Search for tracks on Jamendo. Retries an empty answer, and if the search is still empty
+ * with a tempo filter, tries once more without the tempo so the tags alone can match.
+ */
+export async function searchTracks(clientId: string, options: TrackSearchOptions = {}): Promise<JamendoTrack[]> {
+  const delays = options.retryDelaysMs ?? EMPTY_RETRY_DELAYS_MS;
   try {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Jamendo API error: ${response.status}`);
+    let tracks = await requestTracks(clientId, options);
+    for (const delay of delays) {
+      if (tracks.length > 0) break;
+      await wait(delay);
+      tracks = await requestTracks(clientId, options);
     }
-
-    const data: JamendoApiResponse = await response.json();
-    console.log('Jamendo response:', data.headers);
-
-    if (data.headers.code !== 0) {
-      throw new Error(data.headers.error_message || 'Unknown Jamendo API error');
+    if (tracks.length === 0 && options.speed) {
+      tracks = await requestTracks(clientId, { ...options, speed: undefined });
     }
-
-    return data.results.map(mapApiTrackToJamendoTrack);
+    return tracks;
   } catch (error) {
     console.error('Jamendo search error:', error);
     throw error;

@@ -51,6 +51,38 @@ export const cutRanges = (kept: TimeRange[], duration: number): TimeRange[] => {
   return cuts;
 };
 
+export interface KeptCutSummary {
+  keptSeconds: number;
+  cutSeconds: number;
+  totalSeconds: number;
+  /** Share of the footage that is kept, 0 to 1. */
+  keptFraction: number;
+}
+
+/**
+ * How much of the analyzed footage the current export mode keeps and how much it cuts,
+ * summed over `sources`. Overlapping clips are counted once. A source with no clips counts
+ * as fully cut. Returns null when no source has a usable length.
+ */
+export const summarizeKeptCut = (clips: ClipSegment[], sources: VideoSource[], mode: ExportMode): KeptCutSummary | null => {
+  const keptClips = filterClipsForExport(clips, mode);
+  let keptSeconds = 0;
+  let totalSeconds = 0;
+  for (const source of sources) {
+    const ends = clips.filter(clip => clip.sourceId === source.id).map(clip => clip.endSeconds);
+    const duration = source.metadata.duration || Math.max(...ends, 0);
+    if (!(duration > 0)) continue;
+    const kept = mergeRanges(
+      keptClips.filter(clip => clip.sourceId === source.id).map(clip => ({ start: clip.startSeconds, end: clip.endSeconds })),
+      duration,
+    );
+    keptSeconds += kept.reduce((sum, range) => sum + (range.end - range.start), 0);
+    totalSeconds += duration;
+  }
+  if (!(totalSeconds > 0)) return null;
+  return { keptSeconds, cutSeconds: totalSeconds - keptSeconds, totalSeconds, keptFraction: keptSeconds / totalSeconds };
+};
+
 /** Clock label to a tenth of a second, e.g. "00:52.5". */
 const clock = (seconds: number): string => formatTimestamp(Math.round(seconds * 10) / 10);
 
