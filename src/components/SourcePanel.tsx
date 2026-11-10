@@ -149,9 +149,9 @@ const SourcePanel: React.FC<SourcePanelProps> = ({ analysis, provider, onAnalyze
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-amber-400/70 hover:text-amber-400 text-[10px] flex items-center gap-1 transition-colors shrink-0"
-                    title={`Open the transcoded file sent to Gemini in a new tab. Source ${(item.file.size / 1_048_576).toFixed(0)} MB → uploaded ${((item.transcodedSize ?? 0) / 1_048_576).toFixed(0)} MB. Server downscales to 720p.`}
+                    title={`Open the converted copy in a new tab. It is what the preview plays, and what is uploaded when a provider needs a smaller file. Source ${(item.file.size / 1_048_576).toFixed(0)} MB, copy ${((item.transcodedSize ?? 0) / 1_048_576).toFixed(0)} MB.`}
                   >
-                    <ExternalLink size={10} /> sent
+                    <ExternalLink size={10} /> copy
                   </a>
                 )}
                 {item.status === 'complete' && item.url && (

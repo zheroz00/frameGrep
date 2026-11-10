@@ -111,7 +111,7 @@ export async function transcodeVideo(
     return result;
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
-    throw new Error(`Transcode failed: ${detail}. Check pm2 logs frameGrep-Marlin.`);
+    throw new Error(`Transcode failed: ${detail}. Check the dev server log (pm2 logs frameGrep).`);
   }
 }
 

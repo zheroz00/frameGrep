@@ -27,6 +27,9 @@ Premiere, or FFmpeg.
   stepping (Up / Down, Space, Delete with undo), Play all to preview the cut, and the
   model's reasoning for each clip one click away.
 - **Multi-video batch** — queue several files; each clip tracks its source for exports.
+- **Check what was cut**: a second DaVinci export lays the whole video out in its original
+  order with kept clips on V1 and everything that was cut on V2, so you can scrub the
+  rejects before trusting the edit.
 - **Export to real editors** — EDL, FFmpeg script, or FCPXML (DaVinci Resolve), with
   accurate fps/resolution pulled from the file via `mediainfo.js`.
 - **Social captions** — generate Instagram / TikTok / YouTube / X captions per clip.

@@ -52,7 +52,7 @@ All source lives under `src/`. Config files (`vite.config.ts`, `tsconfig.json`, 
 - `openAIStream.ts`: streaming response parsing for OpenAI-compatible endpoints.
 - `openrouterService.ts`: model listing with caching, vision-model filtering, fallback list.
 - `marlinService.ts`: local Marlin-2B clip-ID model client.
-- `captionService.ts`: social caption generation (Instagram, TikTok, YouTube, Twitter/X).
+- `captionService.ts`: social caption generation (Instagram, TikTok, YouTube, Twitter/X). Runs on the active provider: Gemini, or the Custom OpenAI-compatible endpoint. Prompt text lives in `captionPrompts.ts`.
 - `jamendoService.ts`: mood/energy to search terms, Jamendo queries, royalty-free results.
 - `mediaInfoService.ts`: WASM metadata extraction (fps, resolution, codec) for accurate FCPXML.
 - `transcodeService.ts`: POSTs raw video bytes to `/api/transcode`.
@@ -72,11 +72,14 @@ All source lives under `src/`. Config files (`vite.config.ts`, `tsconfig.json`, 
 - `components/clipBadges.tsx`: `ScoreBadge` and `ClipBadges`, the shared chip vocabulary.
 - `hooks/useClipReview.ts`: previous / next, Play all (follows the export mode via `filterClipsForExport`, so the preview matches the export) and the keyboard shortcuts: Down / J, Up / K, Space, Delete, Ctrl+Z. Disabled while a modal or drawer is open.
 - `hooks/useFileDrop.ts`: drag-and-drop of video files onto the page.
+- `hooks/usePreviewProxy.ts`: when the browser cannot decode the video in the player (Chromium has no software HEVC decoder, so 10-bit HEVC from DJI cameras shows blank), sends the original through `/api/transcode` and plays the 720p H.264 copy instead. The original is untouched and is still what gets exported.
 - `domain/review.ts`: pure clip map geometry and stepping math (tested).
 
 **Utils and constants**
 - `utils/downloadFile.ts`: browser download helper for generated text exports (EDL, FFmpeg script, FCPXML).
 - `utils/exportCore.ts`: the actual EDL / FFmpeg / FCPXML generators (pure, tested).
+- `utils/reviewTimeline.ts`: the "DaVinci + cut footage" export. A second FCPXML in the source video's original timing, kept clips on V1 and everything that was cut on V2 (lane 1, inside gaps). Follows the export mode (pure, tested).
+- `utils/recentFolders.ts`: the last footage folders used for a DaVinci export.
 - `utils/exportUtils.ts`: thin wrapper over `exportCore` plus data import/export with format
   auto-detection.
 - `constants/defaultPresets.ts`: FPV + Generic preset definitions, plus the Shop presets spread in

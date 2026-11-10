@@ -57,6 +57,11 @@ const formatErrorMessage = (error: string, provider: AnalysisProvider): string =
     return 'Too many frames for model. The adaptive frame rate should handle this - please report if you see this error.';
   }
 
+  // Frame extraction decodes the video in the browser. Chromium has no software HEVC decoder.
+  if (error.includes('Failed to load video')) {
+    return "This browser can't decode this video (often 10-bit HEVC from DJI cameras), so frames can't be extracted from it. Use Native Video or Gemini for this file, or open frameGrep in Firefox.";
+  }
+
   return error;
 };
 
@@ -138,6 +143,8 @@ export interface UseVideoAnalysisReturn {
     }
   ) => Promise<void>;
   handlePlayClip: (clip: ClipSegment) => void;
+  /** Use `proxy` (a browser-playable copy) for previewing the given queue item. */
+  setPreviewProxy: (itemId: string, proxy: File) => void;
 
   // Marlin Mode 2 — interactive footage search
   marlinSearch: {
@@ -577,6 +584,16 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     setPlayToken(token => token + 1);
   }, [videoQueue]);
 
+  const setPreviewProxy = useCallback((itemId: string, proxy: File) => {
+    const item = queueRef.current.find(entry => entry.id === itemId);
+    if (!item) return; // removed from the queue while the copy was being made
+    const proxyUrl = URL.createObjectURL(proxy);
+    if (item.transcodedUrl) URL.revokeObjectURL(item.transcodedUrl);
+    updateQueueItem(itemId, { transcodedUrl: proxyUrl, transcodedSize: proxy.size });
+    // Swap the player over if it is showing this item's undecodable original.
+    setActiveVideoUrl(current => (current === item.url || current === item.transcodedUrl ? proxyUrl : current));
+  }, [updateQueueItem]);
+
   /** Seek the player to a raw (start, end) span in seconds, on a given queue item. */
   const previewSpan = useCallback((item: VideoQueueItem, startSec: number, endSec: number) => {
     setActiveVideoUrl(previewUrlFor(item));
@@ -809,6 +826,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     clearQueue,
     runAnalysis,
     handlePlayClip,
+    setPreviewProxy,
     // Marlin Mode 2 search
     marlinSearch,
     searchMarlinVideo,

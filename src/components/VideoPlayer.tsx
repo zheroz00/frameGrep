@@ -18,17 +18,21 @@ interface VideoPlayerProps {
   onSegmentEnd?: () => void;
   /** Fired when the browser knows the video's real duration. */
   onDuration?: (seconds: number) => void;
+  /** Fired when the browser cannot decode this video (for example 10-bit HEVC in Chromium). */
+  onUnplayable?: () => void;
   ref?: React.Ref<VideoPlayerHandle>;
 }
 
-const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, startTime, endTime, autoPlay, playToken, onSegmentEnd, onDuration, ref }) => {
+const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, startTime, endTime, autoPlay, playToken, onSegmentEnd, onDuration, onUnplayable, ref }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   // Latest callbacks in refs so a new function identity does not restart the segment.
   const onSegmentEndRef = useRef(onSegmentEnd);
   const onDurationRef = useRef(onDuration);
+  const onUnplayableRef = useRef(onUnplayable);
   useEffect(() => {
     onSegmentEndRef.current = onSegmentEnd;
     onDurationRef.current = onDuration;
+    onUnplayableRef.current = onUnplayable;
   });
 
   useImperativeHandle(ref, () => ({
@@ -81,6 +85,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, startTime, endTime, auto
         onLoadedMetadata={e => {
           const duration = e.currentTarget.duration;
           if (Number.isFinite(duration) && duration > 0) onDurationRef.current?.(duration);
+          // Audio decoded but the picture did not: the video track is in a format this browser lacks.
+          if (e.currentTarget.videoWidth === 0) onUnplayableRef.current?.();
+        }}
+        onError={e => {
+          const code = e.currentTarget.error?.code;
+          // 3 = decode error, 4 = source not supported. Network and abort errors are not a format problem.
+          if (code === 3 || code === 4) onUnplayableRef.current?.();
         }}
         className="w-full h-full object-contain"
       >

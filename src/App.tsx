@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Film, Upload, Video } from 'lucide-react';
+import { AlertCircle, Film, Loader2, Upload, Video } from 'lucide-react';
 import { optimizeSystemInstruction } from './services/geminiService';
 import VideoPlayer, { VideoPlayerHandle } from './components/VideoPlayer';
 import ClipTimeline from './components/ClipTimeline';
@@ -22,6 +22,7 @@ import { useProjects } from './hooks/useProjects';
 import { useMusic } from './hooks/useMusic';
 import { useClipReview } from './hooks/useClipReview';
 import { useFileDrop } from './hooks/useFileDrop';
+import { usePreviewProxy } from './hooks/usePreviewProxy';
 import { buildTimelineSegments, timelineSpan } from './domain/review';
 import { rememberFolder } from './utils/recentFolders';
 import { getEDLCompatibility, getSourceIdentityIssue } from './utils/exportUtils';
@@ -238,6 +239,13 @@ export default function App() {
     onUndo: analysis.undoRemoveClip,
     togglePlay: togglePlayback,
   });
+  // When the browser cannot decode the video in the player, build a playable copy of it.
+  const previewProxy = usePreviewProxy({
+    activeItem,
+    activeVideoUrl: analysis.activeVideoUrl,
+    onReady: analysis.setPreviewProxy,
+  });
+
   const activeClip = analysis.activeClipIndex !== null ? analysis.allClips[analysis.activeClipIndex] ?? null : null;
 
   // Dropped videos relink a loaded project when it is waiting for its files, else join the queue.
@@ -444,7 +452,36 @@ export default function App() {
                   playToken={analysis.playToken}
                   onSegmentEnd={review.handleSegmentEnd}
                   onDuration={seconds => setPlayerDuration({ url: analysis.activeVideoUrl ?? '', seconds })}
+                  onUnplayable={previewProxy.reportUnplayable}
                 />
+                {previewProxy.state.status !== 'idle' && (
+                  <div role="status" className="absolute inset-0 rounded-lg bg-zinc-950/95 flex flex-col items-center justify-center gap-3 px-6 text-center">
+                    {previewProxy.state.status === 'building' ? (
+                      <>
+                        <Loader2 size={28} className="text-amber-400 animate-spin motion-reduce:animate-none" />
+                        <p className="text-sm font-medium text-zinc-200">Making a preview copy this browser can play</p>
+                        <p className="text-xs text-zinc-400 max-w-[60ch] leading-relaxed">
+                          This browser can't decode the video's format (often 10-bit HEVC from DJI cameras).
+                          Your original file is untouched and is still what gets exported.
+                        </p>
+                        <p className="text-xs text-zinc-500 tabular-nums">{previewProxy.state.detail}</p>
+                      </>
+                    ) : (
+                      <>
+                        <AlertCircle size={28} className="text-red-400" />
+                        <p className="text-sm font-medium text-zinc-200">This browser can't play this video</p>
+                        <p className="text-xs text-zinc-400 max-w-[60ch] leading-relaxed">{previewProxy.state.message}</p>
+                        <button
+                          type="button"
+                          onClick={previewProxy.retry}
+                          className="px-3 py-1.5 rounded-lg border border-zinc-700 text-xs font-medium text-zinc-200 hover:border-zinc-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-500"
+                        >
+                          Try again
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
                 {analysis.activeVideoName && (
                   <div className="absolute top-3 left-3 max-w-[70%] px-2 py-1 bg-black/70 rounded text-xs text-zinc-300 flex items-center gap-1.5 pointer-events-none">
                     <Film size={12} className="shrink-0" />
