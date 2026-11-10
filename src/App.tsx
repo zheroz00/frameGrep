@@ -1,26 +1,29 @@
-import React, { useMemo, useState } from 'react';
-import {
-  Upload, Zap, Video, Terminal, AlertTriangle, PlayCircle, Loader2,
-  CloudUpload, Cpu, FileCode, Monitor, Sparkles, Wand2, AlertCircle,
-  X, CheckCircle2, XCircle, Film, Server, Cloud, Settings, FolderOpen, Hash, Music, Link2, ExternalLink
-} from 'lucide-react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { AlertCircle, Film, Upload, Video } from 'lucide-react';
 import { optimizeSystemInstruction } from './services/geminiService';
-import VideoPlayer from './components/VideoPlayer';
-import ClipCard from './components/ClipCard';
+import VideoPlayer, { VideoPlayerHandle } from './components/VideoPlayer';
+import ClipTimeline from './components/ClipTimeline';
+import NowPlayingBar from './components/NowPlayingBar';
 import PromptLab from './components/PromptLab';
 import SettingsModal from './components/settings/SettingsModal';
 import ProjectsSidebar from './components/ProjectsSidebar';
 import CaptionModal from './components/CaptionModal';
 import MusicPanel from './components/MusicPanel';
 import MarlinSearchPanel from './components/MarlinSearchPanel';
-import GpuWidget from './components/GpuWidget';
+import AppHeader from './components/layout/AppHeader';
+import SourcePanel from './components/SourcePanel';
+import ExportPanel from './components/ExportPanel';
+import ClipList from './components/ClipList';
 import { isLocalProvider } from './utils/providerUtils';
 import { usePresets } from './hooks/usePresets';
 import { useVideoAnalysis } from './hooks/useVideoAnalysis';
 import { useAppSettings } from './hooks/useAppSettings';
 import { useProjects } from './hooks/useProjects';
 import { useMusic } from './hooks/useMusic';
-import { generateEDLWithMode, generateFFmpegScriptWithMode, generateFCPXMLWithMode, filterClipsForExport, getEDLCompatibility, getSourceIdentityIssue, FCPXMLOptions } from './utils/exportUtils';
+import { useClipReview } from './hooks/useClipReview';
+import { useFileDrop } from './hooks/useFileDrop';
+import { buildTimelineSegments, timelineSpan } from './domain/review';
+import { getEDLCompatibility, getSourceIdentityIssue } from './utils/exportUtils';
 import { ExportMode, Project, ClipSegment, CaptionMode } from './types';
 
 const serializeComparable = (value: unknown): string => JSON.stringify(value ?? null);
@@ -195,16 +198,6 @@ export default function App() {
     });
   };
 
-  const downloadFile = (content: string, filename: string) => {
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
-  };
-
   // Get unique source files for export
   const usedSourceIds = new Set(analysis.allClips.map(clip => clip.sourceId));
   const exportSources = currentVideoSources.filter(source => usedSourceIds.has(source.id));
@@ -213,17 +206,59 @@ export default function App() {
   const edlCompatibility = getEDLCompatibility(exportSources);
   const exportIdentityIssue = getSourceIdentityIssue(exportSources);
 
+  // Review desk: player handle, clip map and clip stepping
+  const playerRef = useRef<VideoPlayerHandle>(null);
+  const getPlayerTime = useCallback(() => playerRef.current?.getCurrentTime() ?? null, []);
+  const togglePlayback = useCallback(() => playerRef.current?.togglePlay(), []);
+  // Duration reported by the player, used when metadata extraction came back empty.
+  const [playerDuration, setPlayerDuration] = useState<{ url: string; seconds: number } | null>(null);
+
+  const activeItem = analysis.videoQueue.find(item => item.source.id === analysis.activeSourceId);
+  const activeDuration = activeItem?.metadata?.duration
+    || activeItem?.source.metadata?.duration
+    || (playerDuration && playerDuration.url === analysis.activeVideoUrl ? playerDuration.seconds : 0);
+  const timeline = useMemo(() => ({
+    segments: buildTimelineSegments(analysis.allClips, analysis.activeSourceId, activeDuration),
+    span: timelineSpan(analysis.allClips, analysis.activeSourceId, activeDuration) || activeDuration,
+  }), [analysis.allClips, analysis.activeSourceId, activeDuration]);
+
+  const isOverlayOpen = isPromptLabOpen || isSettingsOpen || isProjectsOpen
+    || captionModal.isOpen || confirmAction.isOpen || music.isOpen;
+  const review = useClipReview({
+    clips: analysis.allClips,
+    activeIndex: analysis.activeClipIndex,
+    exportMode,
+    enabled: !isOverlayOpen,
+    onPlay: analysis.handlePlayClip,
+    onRemove: analysis.removeClipAt,
+    canUndo: analysis.lastRemovedClip !== null,
+    onUndo: analysis.undoRemoveClip,
+    togglePlay: togglePlayback,
+  });
+  const activeClip = analysis.activeClipIndex !== null ? analysis.allClips[analysis.activeClipIndex] ?? null : null;
+
+  // Dropped videos relink a loaded project when it is waiting for its files, else join the queue.
+  const { addFiles, relinkVideos, needsRelink } = analysis;
+  const handleDroppedFiles = useCallback(async (files: File[]) => {
+    if (needsRelink && await relinkVideos(files) > 0) return;
+    await addFiles(files);
+  }, [needsRelink, relinkVideos, addFiles]);
+  const fileDrop = useFileDrop(handleDroppedFiles);
+
   // Get display name for custom model
   const customModelDisplay = appSettings.openrouterModels.find(m => m.id === settings.customConfig.model)?.name
     || settings.customConfig.model.split('/').pop()
     || 'Custom';
 
   return (
-    <div className="min-h-screen bg-transparent text-zinc-200 font-sans selection:bg-amber-500/30">
+    <div
+      {...fileDrop.dropHandlers}
+      className="min-h-screen xl:h-screen xl:overflow-hidden flex flex-col bg-transparent text-zinc-200 font-sans selection:bg-amber-500/30"
+    >
       {/* Confirmation Modal */}
       {confirmAction.isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 max-w-md w-full shadow-2xl">
             <div className="flex items-center gap-3 text-amber-500 mb-4">
               <AlertCircle size={24} />
               <h3 className="text-lg font-bold text-white">{confirmAction.title}</h3>
@@ -275,115 +310,22 @@ export default function App() {
       />
 
       {/* Header */}
-      <header className="border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <img src="/assets/frameGrep-header.png" alt="frameGrep" className="h-9 w-auto" />
-          </div>
-          <div className="flex items-center gap-3">
-            {/* Provider Toggle */}
-            <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-0.5">
-              <button
-                onClick={() => updateProvider('gemini')}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-                  provider === 'gemini'
-                    ? 'bg-amber-500 text-zinc-950'
-                    : 'text-zinc-500 hover:text-white'
-                }`}
-              >
-                <Cloud size={12} /> Gemini
-              </button>
-              <button
-                onClick={() => updateProvider('custom')}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-                  provider === 'custom'
-                    ? 'bg-purple-500 text-white'
-                    : 'text-zinc-500 hover:text-white'
-                }`}
-              >
-                <Server size={12} /> Custom
-              </button>
-              <button
-                onClick={() => updateProvider('marlin')}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-                  provider === 'marlin'
-                    ? 'bg-sky-500 text-white'
-                    : 'text-zinc-500 hover:text-white'
-                }`}
-              >
-                <Cpu size={12} /> Marlin
-              </button>
-            </div>
-
-            {/* Provider indicator / Quick info */}
-            {provider === 'custom' && (
-              <span className="text-xs text-purple-400 max-w-[120px] truncate" title={settings.customConfig.model}>
-                {customModelDisplay}
-              </span>
-            )}
-            {provider === 'marlin' && (
-              <span className="text-xs text-sky-400 max-w-[140px] truncate" title="Local Marlin-2B (caption mode)">
-                Marlin-2B · local
-              </span>
-            )}
-
-            {/* Projects Button */}
-            <button
-              onClick={() => setIsProjectsOpen(!isProjectsOpen)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                isProjectsOpen
-                  ? 'bg-amber-500 text-white'
-                  : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
-              }`}
-            >
-              <FolderOpen size={16} />
-              {projects.projects.length > 0 && (
-                <span className={`text-xs ${isProjectsOpen ? 'text-amber-200' : 'text-zinc-500'}`}>
-                  {projects.projects.length}
-                </span>
-              )}
-            </button>
-
-            {/* Music Button */}
-            <button
-              onClick={() => music.openPanel('all_clips')}
-              disabled={analysis.allClips.length === 0}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                music.isOpen
-                  ? 'bg-emerald-500 text-zinc-950'
-                  : analysis.allClips.length === 0
-                    ? 'bg-zinc-900 text-zinc-600 border border-zinc-800 cursor-not-allowed'
-                    : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
-              }`}
-              title={analysis.allClips.length === 0 ? 'Analyze clips first' : 'Find music for all clips'}
-            >
-              <Music size={16} />
-            </button>
-
-            {/* GPU Activity Widget — only while a local model is the active provider */}
-            <GpuWidget enabled={isLocalProvider(settings)} />
-
-            {/* Settings Button */}
-            <button
-              onClick={() => setIsSettingsOpen(true)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800"
-            >
-              <Settings size={16} />
-            </button>
-
-            <button
-              onClick={() => setIsPromptLabOpen(!isPromptLabOpen)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                isPromptLabOpen
-                  ? 'bg-amber-500 text-zinc-950'
-                  : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
-              }`}
-            >
-              <Wand2 size={16} /> Prompt Lab
-            </button>
-          </div>
-        </div>
-      </header>
+      <AppHeader
+        provider={provider}
+        onProviderChange={updateProvider}
+        customModelId={settings.customConfig.model}
+        customModelDisplay={customModelDisplay}
+        isProjectsOpen={isProjectsOpen}
+        projectCount={projects.projects.length}
+        onToggleProjects={() => setIsProjectsOpen(!isProjectsOpen)}
+        clipCount={analysis.allClips.length}
+        isMusicOpen={music.isOpen}
+        onOpenMusic={() => music.openPanel('all_clips')}
+        gpuWidgetEnabled={isLocalProvider(settings)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        isPromptLabOpen={isPromptLabOpen}
+        onTogglePromptLab={() => setIsPromptLabOpen(!isPromptLabOpen)}
+      />
 
       {/* Prompt Lab Slide-in Panel */}
       <PromptLab
@@ -434,440 +376,129 @@ export default function App() {
         onConfirmAction={handleConfirmAction}
       />
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Left Column */}
-          <div className="lg:col-span-7 flex flex-col gap-6">
-            {/* Video Player */}
-            <div className="relative group">
-              {analysis.activeVideoUrl ? (
-                <>
-                  <VideoPlayer
-                    src={analysis.activeVideoUrl}
-                    startTime={analysis.currentStart}
-                    endTime={analysis.currentEnd}
-                    autoPlay={true}
-                  />
-                  {analysis.activeVideoName && (
-                    <div className="absolute top-3 left-3 px-2 py-1 bg-black/70 rounded text-xs text-zinc-300 flex items-center gap-1.5">
-                      <Film size={12} />
-                      {analysis.activeVideoName}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="w-full aspect-video bg-zinc-900/50 border border-dashed border-zinc-800 rounded-xl flex flex-col items-center justify-center gap-4 text-zinc-600 group-hover:border-zinc-700 transition-colors">
-                  <Video size={48} className="opacity-50" />
-                  <p className="text-sm font-medium">Drop Footage Here</p>
-                </div>
-              )}
-            </div>
 
-            {/* Relink Banner - shown when project loaded but videos missing */}
-            {analysis.needsRelink && (
-              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 shadow-lg">
-                <div className="flex items-start gap-3">
-                  <Link2 size={20} className="text-amber-400 mt-0.5 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <h4 className="text-sm font-semibold text-amber-300 mb-1">
-                      Videos need to be relinked
-                    </h4>
-                    <p className="text-xs text-zinc-400 mb-3">
-                      Project loaded successfully. Select the original video files to enable preview and playback.
-                    </p>
-                    <div className="flex flex-wrap gap-2 mb-3">
-                      {analysis.missingVideos.map((filename, i) => (
-                        <span key={i} className="px-2 py-1 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-300 truncate max-w-[200px]">
-                          {filename}
-                        </span>
-                      ))}
-                    </div>
-                    <label className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-zinc-950 text-sm font-semibold rounded-lg cursor-pointer transition-colors">
-                      <Link2 size={16} />
-                      Relink Videos
-                      <input
-                        type="file"
-                        className="hidden"
-                        accept="video/*"
-                        multiple
-                        onChange={async (e) => {
-                          if (e.target.files) {
-                            const count = await analysis.relinkVideos(e.target.files);
-                            if (count > 0) {
-                              console.log(`Relinked ${count} video(s)`);
-                            }
-                          }
-                          e.target.value = '';
-                        }}
-                      />
-                    </label>
+      <main className="flex-1 min-h-0 w-full px-4 sm:px-6 py-5 grid gap-5 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_400px] xl:grid-cols-[300px_minmax(0,1fr)_380px] xl:grid-rows-[minmax(0,1fr)] 2xl:grid-cols-[340px_minmax(0,1fr)_440px] min-[1920px]:grid-cols-[360px_minmax(0,1fr)_480px]">
+        {/* Left rail: source + export */}
+        <aside className="order-2 lg:order-3 xl:order-1 flex flex-col gap-5 min-w-0 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
+          <SourcePanel
+            analysis={analysis}
+            provider={provider}
+            onAnalyze={handleRunAnalysis}
+          />
+
+          {/* Marlin Mode 2: interactive footage search */}
+          {provider === 'marlin' && analysis.videoQueue.some(item => item.file.size > 0) && (
+            <MarlinSearchPanel
+              targetVideoName={analysis.activeVideoName}
+              isSearching={analysis.marlinSearch.isSearching}
+              result={analysis.marlinSearch.result}
+              error={analysis.marlinSearch.error}
+              added={analysis.marlinSearch.added}
+              onSearch={analysis.searchMarlinVideo}
+              onReplay={analysis.previewMarlinSpan}
+              onAdd={analysis.addFoundClip}
+            />
+          )}
+
+          {/* Export Panel */}
+          {analysis.allClips.length > 0 && (
+            <ExportPanel
+              clips={analysis.allClips}
+              exportSources={exportSources}
+              exportMode={exportMode}
+              setExportMode={setExportMode}
+              davinciMediaFolder={settings.davinciMediaFolder}
+              onDavinciMediaFolderChange={(folder) => updateSettings({ davinciMediaFolder: folder })}
+              selectedMusic={music.selectedTrack}
+              exportProjectName={exportProjectName}
+              exportFilename={exportFilename}
+              firstVideoMetadata={firstVideoMetadata}
+              hasMultipleSources={hasMultipleSources}
+              sourceFiles={sourceFiles}
+              edlCompatibility={edlCompatibility}
+              exportIdentityIssue={exportIdentityIssue}
+              onOpenCaptions={() => setCaptionModal({ isOpen: true, mode: 'video' })}
+            />
+          )}
+        </aside>
+
+        {/* Center: player */}
+        <section className="order-1 xl:order-2 flex flex-col gap-4 min-w-0 xl:min-h-0">
+          <div className="relative xl:flex-1 xl:min-h-0">
+            {analysis.activeVideoUrl ? (
+              <>
+                <VideoPlayer
+                  ref={playerRef}
+                  src={analysis.activeVideoUrl}
+                  startTime={analysis.currentStart}
+                  endTime={analysis.currentEnd}
+                  autoPlay={true}
+                  playToken={analysis.playToken}
+                  onSegmentEnd={review.handleSegmentEnd}
+                  onDuration={seconds => setPlayerDuration({ url: analysis.activeVideoUrl ?? '', seconds })}
+                />
+                {analysis.activeVideoName && (
+                  <div className="absolute top-3 left-3 max-w-[70%] px-2 py-1 bg-black/70 rounded text-xs text-zinc-300 flex items-center gap-1.5 pointer-events-none">
+                    <Film size={12} className="shrink-0" />
+                    <span className="truncate">{analysis.activeVideoName}</span>
                   </div>
-                </div>
+                )}
+              </>
+            ) : (
+              <div className="w-full aspect-video xl:aspect-auto xl:h-full bg-zinc-900/50 border border-dashed border-zinc-800 rounded-xl flex flex-col items-center justify-center gap-3 text-zinc-500">
+                <Video size={48} className="opacity-40" />
+                <p className="text-sm font-medium text-zinc-400">Drop footage here</p>
+                <p className="text-xs">or use Select videos to pick files</p>
               </div>
             )}
-
-            {/* Upload & Analyze Controls */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 shadow-lg">
-              <div className="flex items-center gap-4">
-                <label className="flex-1 cursor-pointer">
-                  <div className="flex items-center gap-3 px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-lg hover:border-zinc-600 transition-colors">
-                    <Upload size={18} className="text-zinc-400" />
-                    <span className="text-sm font-medium truncate">
-                      {analysis.videoQueue.length > 0
-                        ? `${analysis.videoQueue.length} video${analysis.videoQueue.length > 1 ? 's' : ''} queued`
-                        : "Select Videos (multi-select supported)"}
-                    </span>
-                  </div>
-                  <input
-                    type="file"
-                    className="hidden"
-                    accept="video/*"
-                    multiple
-                    onChange={analysis.handleFilesUpload}
-                  />
-                </label>
-                <button
-                  onClick={handleRunAnalysis}
-                  disabled={analysis.videoQueue.length === 0 || analysis.isBusy}
-                  className={`px-6 py-3 rounded-lg font-bold flex items-center gap-2 transition-all min-w-[140px] justify-center ${
-                    analysis.isBusy
-                      ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-lg shadow-amber-500/20 border border-amber-500/30'
-                      : 'bg-amber-500 hover:bg-amber-400 text-zinc-950 shadow-lg shadow-amber-500/10'
-                  }`}
-                >
-                  {analysis.isBusy ? <Loader2 className="animate-spin" size={18} /> : <Zap size={18} fill="currentColor" />}
-                  {analysis.isBusy ? "Processing" : "Analyze"}
-                </button>
-              </div>
-
-              {/* Video Queue */}
-              {analysis.videoQueue.length > 0 && (
-                <div className="mt-4 space-y-2">
-                  <div className="flex items-center justify-between text-xs text-zinc-500">
-                    <span className="font-medium uppercase tracking-wide">Video Queue</span>
-                    {!analysis.isBusy && (
-                      <button
-                        onClick={analysis.clearQueue}
-                        className="text-zinc-600 hover:text-red-400 transition-colors"
-                      >
-                        Clear All
-                      </button>
-                    )}
-                  </div>
-                  <div className="space-y-1.5 max-h-32 overflow-y-auto">
-                    {analysis.videoQueue.map(item => (
-                      <div
-                        key={item.id}
-                        className="flex items-center gap-2 px-3 py-2 bg-zinc-950 rounded-lg text-xs"
-                      >
-                        <div className="flex-shrink-0">
-                          {item.status === 'pending' && <div className="w-3 h-3 rounded-full bg-zinc-600" />}
-                          {item.status === 'preparing' && <Settings size={12} className="text-emerald-400 animate-spin" />}
-                          {item.status === 'uploading' && <CloudUpload size={12} className="text-cyan-400 animate-bounce" />}
-                          {item.status === 'processing' && <Cpu size={12} className="text-amber-400 animate-pulse" />}
-                          {item.status === 'analyzing' && <Sparkles size={12} className="text-purple-400 animate-pulse" />}
-                          {item.status === 'complete' && item.url && <CheckCircle2 size={12} className="text-green-500" />}
-                          {item.status === 'complete' && !item.url && <Link2 size={12} className="text-amber-400" />}
-                          {item.status === 'error' && <XCircle size={12} className="text-red-500" />}
-                          {item.status === 'cancelled' && <XCircle size={12} className="text-zinc-500" />}
-                        </div>
-                        <span className={`flex-1 truncate ${item.url ? 'text-zinc-400' : 'text-amber-400/70'}`}>{item.file.name}</span>
-                        {item.transcodedUrl && (
-                          <a
-                            href={item.transcodedUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-amber-400/70 hover:text-amber-400 text-[10px] flex items-center gap-1 transition-colors shrink-0"
-                            title={`Open the transcoded file sent to Gemini in a new tab. Source ${(item.file.size / 1_048_576).toFixed(0)} MB → uploaded ${((item.transcodedSize ?? 0) / 1_048_576).toFixed(0)} MB. Server downscales to 720p.`}
-                          >
-                            <ExternalLink size={10} /> sent
-                          </a>
-                        )}
-                        {item.status === 'complete' && item.url && (
-                          <span className="text-green-500/70">{item.clips.length} clips</span>
-                        )}
-                        {item.status === 'complete' && !item.url && (
-                          <span className="text-amber-400/70 text-[10px]">needs relink</span>
-                        )}
-                        {item.status === 'error' && (
-                          <span className="text-red-400 truncate max-w-[100px]" title={item.error}>
-                            {item.error}
-                          </span>
-                        )}
-                        {(item.status === 'error' || item.status === 'cancelled') && !analysis.isBusy && (
-                          <button onClick={() => analysis.retryItem(item.id)} className="text-amber-400 hover:text-amber-300 text-[10px]">Retry</button>
-                        )}
-                        {!analysis.isBusy && item.status === 'pending' && (
-                          <button
-                            onClick={() => analysis.removeFromQueue(item.id)}
-                            className="text-zinc-600 hover:text-red-400 transition-colors"
-                          >
-                            <X size={14} />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Progress Indicator */}
-              {analysis.isBusy && (
-                <div className="mt-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className={`flex items-center gap-3 text-sm font-medium ${
-                      analysis.uploadPhase === 'preparing' ? 'text-emerald-400' :
-                      analysis.uploadPhase === 'uploading' ? 'text-cyan-400' :
-                      analysis.uploadPhase === 'processing' ? 'text-amber-400' :
-                      analysis.uploadPhase === 'extracting' ? 'text-orange-400' :
-                      'text-purple-400'
-                    }`}>
-                      {analysis.uploadPhase === 'preparing' && <Settings size={16} className="animate-spin" />}
-                      {analysis.uploadPhase === 'uploading' && <CloudUpload size={16} className="animate-bounce" />}
-                      {analysis.uploadPhase === 'processing' && <Cpu size={16} className="animate-pulse" />}
-                      {analysis.uploadPhase === 'extracting' && <Film size={16} className="animate-pulse" />}
-                      {analysis.uploadPhase === 'analyzing' && <Sparkles size={16} className="animate-pulse" />}
-                      <span>
-                        {analysis.queueProgress.total > 1 && (
-                          <span className="text-zinc-500 mr-2">
-                            [{analysis.queueProgress.current}/{analysis.queueProgress.total}]
-                          </span>
-                        )}
-                        {analysis.phaseDetail || (
-                          <>
-                            {analysis.uploadPhase === 'preparing' && "Transcoding for analysis..."}
-                            {analysis.uploadPhase === 'uploading' && "Uploading to Gemini Files API..."}
-                            {analysis.uploadPhase === 'processing' && `Gemini processing video on Google servers (${analysis.processingProgress.attempt}/${analysis.processingProgress.maxAttempts} polls, ${analysis.processingProgress.attempt * 2}s elapsed)...`}
-                            {analysis.uploadPhase === 'extracting' && "Extracting video frames..."}
-                            {analysis.uploadPhase === 'analyzing' && "AI analyzing footage..."}
-                          </>
-                        )}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className={`font-mono font-bold tabular-nums text-sm ${provider === 'custom' ? 'text-purple-500' : 'text-amber-500'}`}>
-                        {Math.floor(analysis.elapsedTime / 60)}:{String(analysis.elapsedTime % 60).padStart(2, '0')}
-                      </span>
-                      <button onClick={analysis.cancelAnalysis} className="text-[10px] text-red-400 hover:text-red-300 border border-red-500/30 rounded px-2 py-1">Cancel</button>
-                    </div>
-                  </div>
-                  {(analysis.uploadPhase === 'preparing' || analysis.uploadPhase === 'processing') && (
-                    <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full transition-all duration-500 ${
-                          analysis.uploadPhase === 'preparing'
-                            ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
-                            : 'bg-gradient-to-r from-amber-500 to-orange-500'
-                        }`}
-                        style={{ width: `${Math.min((analysis.processingProgress.attempt / analysis.processingProgress.maxAttempts) * 100, 100)}%` }}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Error Display */}
-              {analysis.error && (
-                <div className="mt-4 p-3 bg-red-900/20 border border-red-900/50 rounded-lg flex items-center gap-3 text-red-400 text-sm">
-                  <AlertTriangle size={16} />
-                  {analysis.error}
-                </div>
-              )}
-            </div>
-
-            {/* Marlin Mode 2 — interactive footage search */}
-            {provider === 'marlin' && analysis.videoQueue.some(item => item.file.size > 0) && (
-              <MarlinSearchPanel
-                targetVideoName={analysis.activeVideoName}
-                isSearching={analysis.marlinSearch.isSearching}
-                result={analysis.marlinSearch.result}
-                error={analysis.marlinSearch.error}
-                added={analysis.marlinSearch.added}
-                onSearch={analysis.searchMarlinVideo}
-                onReplay={analysis.previewMarlinSpan}
-                onAdd={analysis.addFoundClip}
-              />
-            )}
-
-            {/* Export Panel */}
-            {analysis.allClips.length > 0 && (
-              <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-xl">
-                <div className="p-4 border-b border-zinc-800 flex flex-col gap-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-500">Export Supercut</h3>
-                      {hasMultipleSources && (
-                        <span className="px-2 py-0.5 bg-amber-500/10 text-amber-500 text-[10px] font-medium rounded">
-                          {sourceFiles.length} sources
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => downloadFile(generateEDLWithMode(analysis.allClips, exportSources, exportMode), 'FPV_Supercut.edl')}
-                        disabled={!edlCompatibility.supported}
-                        title={edlCompatibility.reason ?? 'Export CMX 3600 EDL'}
-                        className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed text-zinc-200 text-xs rounded flex items-center gap-2 transition-colors"
-                      >
-                        <Monitor size={12} /> EDL
-                      </button>
-                      <button
-                        onClick={() => downloadFile(generateFFmpegScriptWithMode(analysis.allClips, exportSources, 'unix', exportMode), 'stitch.sh')}
-                        disabled={Boolean(exportIdentityIssue)}
-                        title={exportIdentityIssue ?? 'Export a frame-accurate FFmpeg script'}
-                        className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed text-zinc-200 text-xs rounded flex items-center gap-2 transition-colors"
-                      >
-                        <FileCode size={12} /> FFmpeg
-                      </button>
-                      <button
-                        onClick={() => {
-                          const fcpxmlOptions: FCPXMLOptions = {
-                            sources: exportSources,
-                            audioFilename: music.selectedTrack?.filename,
-                            mediaFolder: settings.davinciMediaFolder,
-                          };
-                          downloadFile(
-                            generateFCPXMLWithMode(exportProjectName, analysis.allClips, exportMode, fcpxmlOptions),
-                            exportFilename
-                          );
-                        }}
-                        disabled={Boolean(exportIdentityIssue)}
-                        className="px-3 py-1.5 bg-orange-500/10 border border-orange-500/30 hover:bg-orange-500/20 disabled:opacity-40 disabled:cursor-not-allowed text-orange-400 text-xs rounded flex items-center gap-2 transition-colors"
-                        title={exportIdentityIssue ?? `Export as FCPXML for DaVinci Resolve${firstVideoMetadata ? ` (${firstVideoMetadata.frameRate.numerator}/${firstVideoMetadata.frameRate.denominator} ${firstVideoMetadata.width}x${firstVideoMetadata.height})` : ''}${music.selectedTrack ? ` with music: ${music.selectedTrack.track.name}` : ''}`}
-                      >
-                        <Film size={12} /> DaVinci {music.selectedTrack && <Music size={10} className="text-emerald-400" />}
-                      </button>
-                      <button
-                        onClick={() => setCaptionModal({ isOpen: true, mode: 'video' })}
-                        className="px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-400 text-xs rounded flex items-center gap-2 transition-colors"
-                        title="Generate social media captions for all clips"
-                      >
-                        <Hash size={12} /> Captions
-                      </button>
-                    </div>
-                  </div>
-                  {/* Export Mode Toggle - show when Smart Edit data is present */}
-                  {analysis.allClips.some(c => c.sectionType) && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Mode:</span>
-                      <div className="flex items-center bg-zinc-950 border border-zinc-800 rounded-lg p-0.5">
-                        <button
-                          onClick={() => setExportMode('highlights_only')}
-                          className={`px-2.5 py-1 rounded-md text-[10px] font-medium transition-colors ${
-                            exportMode === 'highlights_only'
-                              ? 'bg-green-500 text-zinc-950'
-                              : 'text-zinc-500 hover:text-white'
-                          }`}
-                        >
-                          Highlights Only
-                        </button>
-                        <button
-                          onClick={() => setExportMode('full_edit')}
-                          className={`px-2.5 py-1 rounded-md text-[10px] font-medium transition-colors ${
-                            exportMode === 'full_edit'
-                              ? 'bg-amber-500 text-zinc-950'
-                              : 'text-zinc-500 hover:text-white'
-                          }`}
-                        >
-                          Full Edit (Remove Dead Time)
-                        </button>
-                      </div>
-                      <span className="text-[10px] text-zinc-600">
-                        {filterClipsForExport(analysis.allClips, exportMode).length} clips
-                      </span>
-                    </div>
-                  )}
-                  {/* Optional source-video folder → FCPXML embeds absolute paths so DaVinci auto-links media (blank = relink in Resolve) */}
-                  <div className="flex items-center gap-2">
-                    <FolderOpen size={13} className="text-zinc-500 shrink-0" />
-                    <input
-                      type="text"
-                      value={settings.davinciMediaFolder || ''}
-                      onChange={(e) => updateSettings({ davinciMediaFolder: e.target.value })}
-                      placeholder="/path/to/footage — source folder for DaVinci auto-link (optional)"
-                      className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-[11px] font-mono text-zinc-300 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500/50"
-                      title="Paste the folder holding your source video(s). FCPXML embeds absolute paths so Resolve links media automatically on import. Leave blank to relink in Resolve."
-                    />
-                  </div>
-                </div>
-                <div className="p-4 bg-black/50">
-                  <div className="flex items-center gap-2 text-xs text-zinc-500 mb-3 font-mono">
-                    <Terminal size={14} /> FFmpeg Commands
-                  </div>
-                  <pre className="text-[10px] font-mono text-zinc-400 overflow-x-auto whitespace-pre p-3 bg-black rounded border border-zinc-800 scrollbar-thin max-h-32">
-                    {exportIdentityIssue
-                      ? `# Export blocked: ${exportIdentityIssue}`
-                      : generateFFmpegScriptWithMode(analysis.allClips, exportSources, 'unix', exportMode).split('\n').filter((l: string) => l.includes('ffmpeg')).slice(0, 5).join('\n')}
-                    {!exportIdentityIssue && filterClipsForExport(analysis.allClips, exportMode).length > 5 && '\n# ... and more'}
-                  </pre>
-                </div>
+            {fileDrop.isDragging && (
+              <div className="absolute inset-0 z-10 rounded-xl border-2 border-dashed border-amber-500 bg-zinc-950/85 flex flex-col items-center justify-center gap-3 text-amber-400 pointer-events-none">
+                <Upload size={32} />
+                <p className="text-sm font-medium">
+                  {analysis.needsRelink ? 'Drop to relink the project videos' : 'Drop to add to the queue'}
+                </p>
               </div>
             )}
           </div>
+          <ClipTimeline
+            segments={timeline.segments}
+            clips={analysis.allClips}
+            span={timeline.span}
+            activeIndex={analysis.activeClipIndex}
+            getTime={getPlayerTime}
+            onSelect={index => analysis.handlePlayClip(analysis.allClips[index])}
+          />
+          <NowPlayingBar
+            clip={activeClip}
+            index={analysis.activeClipIndex}
+            total={analysis.allClips.length}
+            canPrev={review.canPrev}
+            canNext={review.canNext}
+            onPrev={review.goPrev}
+            onNext={review.goNext}
+            playAll={review.playAll}
+            onTogglePlayAll={review.togglePlayAll}
+            playableCount={review.playableCount}
+          />
+        </section>
 
-          {/* Right Column - Clips List */}
-          <div className="lg:col-span-5 flex flex-col h-[calc(100vh-8rem)]">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <PlayCircle className="text-amber-500" size={20} />
-                <h2 className="text-lg font-bold text-white">Analyzed Clips</h2>
-              </div>
-              {analysis.allClips.length > 0 && (
-                <div className="flex items-center gap-2">
-                  {/* Section type breakdown when Smart Edit is used */}
-                  {analysis.allClips.some(c => c.sectionType) ? (
-                    <div className="flex items-center gap-1.5 text-[10px]">
-                      <span className="text-green-400">{analysis.allClips.filter(c => c.sectionType === 'highlight').length} highlights</span>
-                      <span className="text-zinc-600">|</span>
-                      <span className="text-blue-400">{analysis.allClips.filter(c => c.sectionType === 'flow').length} flow</span>
-                      <span className="text-zinc-600">|</span>
-                      <span className="text-yellow-400">{analysis.allClips.filter(c => c.sectionType === 'transition').length} transitions</span>
-                      <span className="text-zinc-600">|</span>
-                      <span className="text-red-400">{analysis.allClips.filter(c => c.sectionType === 'dead_time').length} dead</span>
-                    </div>
-                  ) : (
-                    <span className="px-2 py-0.5 bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-500 rounded">
-                      {analysis.allClips.length} HIGHLIGHTS
-                      {hasMultipleSources && ` / ${sourceFiles.length} VIDEOS`}
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="flex-1 overflow-y-auto pr-2 space-y-3 pb-8 scrollbar-thin">
-              {analysis.allClips.length === 0 && !analysis.isBusy ? (
-                <div className="h-full flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl p-8 bg-zinc-900/20">
-                  <Zap className="opacity-10 mb-4" size={48} />
-                  <p className="text-center text-sm opacity-50">Upload footage to begin highlight extraction.</p>
-                </div>
-              ) : (
-                analysis.allClips.map((clip, idx) => (
-                  <ClipCard
-                    key={idx}
-                    index={idx}
-                    clip={clip}
-                    filename={currentVideoSources.find(source => source.id === clip.sourceId)?.filename || 'video.mp4'}
-                    onPlay={() => analysis.handlePlayClip(clip, idx)}
-                    onCaption={() => setCaptionModal({ isOpen: true, clip, mode: 'clip' })}
-                    onMusic={() => music.openPanel('single_clip', idx)}
-                    onRemove={() => analysis.removeClipAt(idx)}
-                    isActive={analysis.activeClipIndex === idx}
-                    showSource={hasMultipleSources}
-                  />
-                ))
-              )}
-              {analysis.isBusy && (
-                <div className="space-y-3 animate-pulse">
-                  {[1, 2, 3, 4, 5].map(i => (
-                    <div key={i} className="h-32 bg-zinc-900/50 rounded-xl border border-zinc-800" />
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        {/* Right rail: clips */}
+        <aside className="order-3 lg:order-2 xl:order-3 lg:row-span-2 xl:row-span-1 min-w-0 h-[70vh] lg:h-[calc(100vh-6.5rem)] lg:sticky lg:top-[5.25rem] lg:self-start xl:static xl:h-auto xl:min-h-0 xl:self-stretch">
+          <ClipList
+            clips={analysis.allClips}
+            sources={currentVideoSources}
+            isBusy={analysis.isBusy}
+            activeClipIndex={analysis.activeClipIndex}
+            hasMultipleSources={hasMultipleSources}
+            sourceCount={sourceFiles.length}
+            onPlay={analysis.handlePlayClip}
+            onCaption={(clip) => setCaptionModal({ isOpen: true, clip, mode: 'clip' })}
+            onMusic={(idx) => music.openPanel('single_clip', idx)}
+            onRemove={analysis.removeClipAt}
+            lastRemovedClip={analysis.lastRemovedClip}
+            onUndoRemove={analysis.undoRemoveClip}
+          />
+        </aside>
       </main>
     </div>
   );

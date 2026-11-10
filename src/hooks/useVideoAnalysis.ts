@@ -29,6 +29,9 @@ export const secondsToMmss = (seconds: number): string => {
  */
 const previewUrlFor = (item: VideoQueueItem): string => item.transcodedUrl || item.url;
 
+/** How long a removed clip stays restorable. */
+const UNDO_WINDOW_MS = 8000;
+
 /** Parse error message and provide user-friendly suggestions */
 const formatErrorMessage = (error: string, provider: AnalysisProvider): string => {
   // Gemini file size limit (413 or "too large")
@@ -102,6 +105,10 @@ export interface UseVideoAnalysisReturn {
   currentStart: number | undefined;
   currentEnd: number | undefined;
   activeClipIndex: number | null;
+  /** Source id of the video loaded in the player, for the clip map. */
+  activeSourceId: string | null;
+  /** Bumped on every play request so replaying the same span seeks again. */
+  playToken: number;
 
   // Relink support (for loaded projects)
   needsRelink: boolean;
@@ -109,6 +116,8 @@ export interface UseVideoAnalysisReturn {
 
   // Actions
   handleFilesUpload: (e: ChangeEvent<HTMLInputElement>) => void;
+  /** Queue video files from any source (file picker or drag-and-drop). */
+  addFiles: (files: File[]) => Promise<void>;
   removeFromQueue: (id: string) => void;
   retryItem: (id: string) => void;
   cancelAnalysis: () => void;
@@ -128,7 +137,7 @@ export interface UseVideoAnalysisReturn {
       marlinEndpoint?: string;
     }
   ) => Promise<void>;
-  handlePlayClip: (clip: ClipSegment, index: number) => void;
+  handlePlayClip: (clip: ClipSegment) => void;
 
   // Marlin Mode 2 — interactive footage search
   marlinSearch: {
@@ -142,6 +151,9 @@ export interface UseVideoAnalysisReturn {
   previewMarlinSpan: () => void;
   addFoundClip: () => void;
   removeClipAt: (globalIndex: number) => void;
+  /** The most recently removed clip while it can still be restored, else null. */
+  lastRemovedClip: ClipSegment | null;
+  undoRemoveClip: () => void;
 
   setError: (error: string | null) => void;
   loadClipsFromProject: (clips: ClipSegment[], sources: VideoSource[]) => void;
@@ -168,7 +180,15 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
   const [activeVideoName, setActiveVideoName] = useState<string | null>(null);
   const [currentStart, setCurrentStart] = useState<number | undefined>(undefined);
   const [currentEnd, setCurrentEnd] = useState<number | undefined>(undefined);
-  const [activeClipIndex, setActiveClipIndex] = useState<number | null>(null);
+  // The active clip is tracked by id so removing or restoring other clips cannot
+  // shift the highlight onto the wrong card.
+  const [activeClipId, setActiveClipId] = useState<string | null>(null);
+  const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
+  const [playToken, setPlayToken] = useState(0);
+
+  // Single-level undo for clip removal.
+  const [lastRemoved, setLastRemoved] = useState<{ clip: ClipSegment; itemId: string; localIndex: number } | null>(null);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Marlin Mode 2 — interactive footage search (find mode). Independent of the analysis
   // queue: the user types a query, we resolve it to a span and preview it in the player.
@@ -184,6 +204,8 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
 
   // Combine all clips from queue
   const allClips = videoQueue.flatMap(item => item.clips);
+  const activeClipPosition = activeClipId ? allClips.findIndex(clip => clip.id === activeClipId) : -1;
+  const activeClipIndex = activeClipPosition >= 0 ? activeClipPosition : null;
 
   useEffect(() => { queueRef.current = videoQueue; }, [videoQueue]);
 
@@ -198,6 +220,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     return () => {
       abortControllerRef.current?.abort();
       if (timerRef.current) clearInterval(timerRef.current);
+      if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
       queueRef.current.forEach(item => {
         if (item.url) URL.revokeObjectURL(item.url);
         if (item.transcodedUrl) URL.revokeObjectURL(item.transcodedUrl);
@@ -205,12 +228,11 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     };
   }, []);
 
-  const handleFilesUpload = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+  const addFiles = useCallback(async (files: File[]) => {
+    if (files.length === 0) return;
 
     const reservedIds = new Set(videoQueue.map(item => item.source.id));
-    const newItems: VideoQueueItem[] = Array.from(files as FileList, (file: File) => {
+    const newItems: VideoQueueItem[] = files.map((file: File) => {
       let source = createVideoSource(file);
       if (reservedIds.has(source.id)) source = { ...source, id: `${source.id}-${generateId()}` };
       reservedIds.add(source.id);
@@ -231,10 +253,8 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     if (!activeVideoUrl && newItems.length > 0) {
       setActiveVideoUrl(previewUrlFor(newItems[0]));
       setActiveVideoName(newItems[0].file.name);
+      setActiveSourceId(newItems[0].source.id);
     }
-
-    // Reset input
-    e.target.value = '';
 
     // Extract metadata for each video in background
     for (const item of newItems) {
@@ -249,6 +269,13 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     }
   }, [activeVideoUrl, videoQueue]);
 
+  const handleFilesUpload = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    // Reset the input so picking the same file again still fires a change event.
+    e.target.value = '';
+    void addFiles(files);
+  }, [addFiles]);
+
   const removeFromQueue = useCallback((id: string) => {
     setVideoQueue(prev => {
       const item = prev.find(i => i.id === id);
@@ -262,6 +289,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
         const nextItem = updated[0];
         setActiveVideoUrl(nextItem ? previewUrlFor(nextItem) : null);
         setActiveVideoName(nextItem?.file.name || null);
+        setActiveSourceId(nextItem?.source.id ?? null);
       }
 
       return updated;
@@ -276,7 +304,9 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     setVideoQueue([]);
     setActiveVideoUrl(null);
     setActiveVideoName(null);
-    setActiveClipIndex(null);
+    setActiveSourceId(null);
+    setActiveClipId(null);
+    setLastRemoved(null);
     setCurrentStart(undefined);
     setCurrentEnd(undefined);
     setStatus(AppStatus.IDLE);
@@ -532,26 +562,30 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     }
   };
 
-  const handlePlayClip = useCallback((clip: ClipSegment, index: number) => {
+  const handlePlayClip = useCallback((clip: ClipSegment) => {
     // Find the video that contains this clip
     const sourceItem = videoQueue.find(item => item.source.id === clip.sourceId);
     if (sourceItem) {
       setActiveVideoUrl(previewUrlFor(sourceItem));
       setActiveVideoName(sourceItem.file.name);
+      setActiveSourceId(sourceItem.source.id);
     }
 
     setCurrentStart(clip.startSeconds);
     setCurrentEnd(clip.endSeconds);
-    setActiveClipIndex(index);
+    setActiveClipId(clip.id);
+    setPlayToken(token => token + 1);
   }, [videoQueue]);
 
   /** Seek the player to a raw (start, end) span in seconds, on a given queue item. */
   const previewSpan = useCallback((item: VideoQueueItem, startSec: number, endSec: number) => {
     setActiveVideoUrl(previewUrlFor(item));
     setActiveVideoName(item.file.name);
+    setActiveSourceId(item.source.id);
     setCurrentStart(startSec);
     setCurrentEnd(endSec);
-    setActiveClipIndex(null); // not one of the analyzed clips
+    setActiveClipId(null); // not one of the analyzed clips
+    setPlayToken(token => token + 1);
   }, []);
 
   /**
@@ -640,13 +674,31 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     let remaining = globalIndex;
     for (const item of videoQueue) {
       if (remaining < item.clips.length) {
+        const removed = item.clips[remaining];
         const nextClips = item.clips.filter((_, i) => i !== remaining);
         updateQueueItem(item.id, { clips: nextClips });
+        setLastRemoved({ clip: removed, itemId: item.id, localIndex: remaining });
+        if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+        undoTimerRef.current = setTimeout(() => setLastRemoved(null), UNDO_WINDOW_MS);
         return;
       }
       remaining -= item.clips.length;
     }
   }, [videoQueue, updateQueueItem]);
+
+  /** Put the last removed clip back where it was, if its video is still queued. */
+  const undoRemoveClip = useCallback(() => {
+    if (!lastRemoved) return;
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    const { clip, itemId, localIndex } = lastRemoved;
+    setVideoQueue(prev => prev.map(item => {
+      if (item.id !== itemId || item.clips.some(existing => existing.id === clip.id)) return item;
+      const clips = [...item.clips];
+      clips.splice(Math.min(localIndex, clips.length), 0, clip);
+      return { ...item, clips };
+    }));
+    setLastRemoved(null);
+  }, [lastRemoved]);
 
   const loadClipsFromProject = useCallback((clips: ClipSegment[], sources: VideoSource[]) => {
     // Clear existing queue
@@ -668,7 +720,9 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     setVideoQueue(loadedItems);
     setActiveVideoUrl(null); // No video to preview until re-uploaded
     setActiveVideoName(loadedItems[0]?.file.name || null);
-    setActiveClipIndex(null);
+    setActiveSourceId(loadedItems[0]?.source.id ?? null);
+    setActiveClipId(null);
+    setLastRemoved(null);
     setStatus(AppStatus.COMPLETE);
     setError(null);
   }, [videoQueue]);
@@ -678,6 +732,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     let linkedCount = 0;
     let firstLinkedUrl: string | null = null;
     let firstLinkedName: string | null = null;
+    let firstLinkedSourceId: string | null = null;
 
     const placeholders = videoQueue.filter(item => item.file.size === 0).map(item => item.source);
     const relink = relinkProjectSources(placeholders, fileArray);
@@ -709,6 +764,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
         if (!firstLinkedUrl) {
           firstLinkedUrl = url;
           firstLinkedName = file.name;
+          firstLinkedSourceId = matchingItem.source.id;
         }
         linkedCount++;
       }
@@ -718,6 +774,7 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     if (firstLinkedUrl && !activeVideoUrl) {
       setActiveVideoUrl(firstLinkedUrl);
       setActiveVideoName(firstLinkedName);
+      setActiveSourceId(firstLinkedSourceId);
     }
 
     return linkedCount;
@@ -739,10 +796,13 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     currentStart,
     currentEnd,
     activeClipIndex,
+    activeSourceId,
+    playToken,
     // Relink support
     needsRelink,
     missingVideos,
     handleFilesUpload,
+    addFiles,
     removeFromQueue,
     retryItem,
     cancelAnalysis,
@@ -755,6 +815,8 @@ export function useVideoAnalysis(): UseVideoAnalysisReturn {
     previewMarlinSpan,
     addFoundClip,
     removeClipAt,
+    lastRemovedClip: lastRemoved?.clip ?? null,
+    undoRemoveClip,
     setError,
     loadClipsFromProject,
     relinkVideos,

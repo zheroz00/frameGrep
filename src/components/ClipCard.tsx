@@ -1,77 +1,9 @@
-import React, { useState } from 'react';
-import { Play, Copy, Check, Film, Sun, Cloud, Sunset, Moon, Sparkles, Waves, ArrowRight, Trash2, Zap, Activity, Battery, MessageCircle, Music } from 'lucide-react';
-import { ClipSegment, ClipMood, LightingCondition, SectionType, EnergyLevel, EditRecommendation } from '../types';
+import React, { useEffect, useRef, useState } from 'react';
+import { Play, Copy, Check, Film, Trash2, MessageCircle, Music } from 'lucide-react';
+import { ClipSegment } from '../types';
 import { formatTimestamp } from '../domain/media';
-
-// Mood badge styling
-const MOOD_CONFIG: Record<ClipMood, { label: string; class: string }> = {
-  intense: { label: 'Intense', class: 'bg-red-500/20 text-red-400 border-red-500/30' },
-  smooth: { label: 'Smooth', class: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30' },
-  dramatic: { label: 'Dramatic', class: 'bg-purple-500/20 text-purple-400 border-purple-500/30' },
-  peaceful: { label: 'Peaceful', class: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' },
-  playful: { label: 'Playful', class: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' },
-  technical: { label: 'Technical', class: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
-};
-
-// Lighting icons
-const LIGHTING_ICONS: Record<LightingCondition, React.ReactNode> = {
-  golden_hour: <Sunset size={10} className="text-orange-400" />,
-  midday: <Sun size={10} className="text-yellow-300" />,
-  overcast: <Cloud size={10} className="text-gray-400" />,
-  shade: <Cloud size={10} className="text-zinc-500" />,
-  indoor: <Moon size={10} className="text-zinc-400" />,
-  mixed: <Sun size={10} className="text-zinc-400" />,
-  low_light: <Moon size={10} className="text-indigo-400" />,
-};
-
-// Section type badge styling (Smart Edit Roadmap)
-const SECTION_TYPE_CONFIG: Record<SectionType, { label: string; class: string; icon: React.ReactNode }> = {
-  highlight: {
-    label: 'Highlight',
-    class: 'bg-green-500/20 text-green-400 border-green-500/30',
-    icon: <Sparkles size={10} />
-  },
-  flow: {
-    label: 'Flow',
-    class: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-    icon: <Waves size={10} />
-  },
-  transition: {
-    label: 'Transition',
-    class: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-    icon: <ArrowRight size={10} />
-  },
-  dead_time: {
-    label: 'Dead Time',
-    class: 'bg-red-500/20 text-red-400 border-red-500/30',
-    icon: <Trash2 size={10} />
-  },
-};
-
-// Energy level icons
-const ENERGY_ICONS: Record<EnergyLevel, React.ReactNode> = {
-  high: <Zap size={10} className="text-orange-400" />,
-  medium: <Activity size={10} className="text-zinc-400" />,
-  low: <Battery size={10} className="text-blue-400" />,
-};
-
-// Recommendation badge styling
-const RECOMMENDATION_CONFIG: Record<EditRecommendation, { label: string; class: string }> = {
-  keep: { label: 'Keep', class: 'bg-green-500/10 text-green-400 border-green-500/20' },
-  trim: { label: 'Trim', class: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' },
-  review: { label: 'Review', class: 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20' },
-};
-
-// Color dot styling (maps common color names to Tailwind classes)
-const getColorDotClass = (color: string): string => {
-  const colorMap: Record<string, string> = {
-    red: 'bg-red-500', orange: 'bg-orange-500', yellow: 'bg-yellow-500',
-    green: 'bg-green-500', blue: 'bg-blue-500', purple: 'bg-purple-500',
-    pink: 'bg-pink-500', cyan: 'bg-cyan-500', gray: 'bg-gray-500',
-    brown: 'bg-amber-700', white: 'bg-white', black: 'bg-zinc-900',
-  };
-  return colorMap[color.toLowerCase()] || 'bg-zinc-600';
-};
+import { ClipBadges, ScoreBadge } from './clipBadges';
+import WhyDisclosure from './WhyDisclosure';
 
 interface ClipCardProps {
   clip: ClipSegment;
@@ -90,14 +22,18 @@ const escapeShellFilename = (str: string): string => {
   return str.replace(/(["\$`\\])/g, '\\$1');
 };
 
+const iconButton = 'p-1.5 rounded-md text-zinc-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-500 transition-colors';
+
 const ClipCard: React.FC<ClipCardProps> = ({ clip, index, onPlay, onCaption, onMusic, onRemove, isActive, filename, showSource }) => {
   const [copied, setCopied] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
 
-  const getScoreColor = (score: number) => {
-    if (score >= 9) return 'text-purple-400 border-purple-500/50 bg-purple-500/10';
-    if (score >= 7) return 'text-green-400 border-green-500/50 bg-green-500/10';
-    return 'text-blue-400 border-blue-500/50 bg-blue-500/10';
-  };
+  // Keep the playing clip in view while stepping with the keyboard or Play all.
+  useEffect(() => {
+    if (!isActive) return;
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    cardRef.current?.scrollIntoView({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' });
+  }, [isActive]);
 
   const copyCommand = () => {
     const safeFilename = escapeShellFilename(filename);
@@ -107,136 +43,84 @@ const ClipCard: React.FC<ClipCardProps> = ({ clip, index, onPlay, onCaption, onM
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Border color based on section type (dead_time gets red border)
-  const getSectionBorderClass = () => {
-    if (isActive) return 'border-amber-500 bg-amber-500/5';
-    if (clip.sectionType === 'dead_time') return 'border-red-500/30 bg-red-500/5 hover:border-red-500/50';
-    return 'border-zinc-800 hover:border-zinc-700 bg-zinc-900';
+  const surface = isActive
+    ? 'border-amber-500 bg-amber-500/5'
+    : clip.sectionType === 'dead_time'
+      ? 'border-red-500/30 bg-red-500/5 hover:border-red-500/50'
+      : 'border-zinc-800 bg-zinc-900 hover:border-zinc-600';
+
+  // Card actions must not also trigger the card's own play-on-click.
+  const act = (fn?: () => void) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    fn?.();
   };
+  const keepFocus = (e: React.MouseEvent) => e.preventDefault();
 
   return (
-    <div className={`p-4 rounded-xl border transition-all duration-200 ${getSectionBorderClass()} flex flex-col gap-3 group`}>
-      <div className="flex justify-between items-start">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-mono text-zinc-500">#{String(index + 1).padStart(2, '0')}</span>
-          <span className={`text-xs font-bold px-2 py-0.5 rounded border ${getScoreColor(clip.excitementScore)}`}>
-            SCORE: {clip.excitementScore}
-          </span>
-        </div>
-        <div className="text-xs font-mono text-zinc-400">
-          {formatTimestamp(clip.startSeconds)} - {formatTimestamp(clip.endSeconds)}
-        </div>
+    <div
+      ref={cardRef}
+      tabIndex={0}
+      aria-current={isActive ? 'true' : undefined}
+      aria-label={`Clip ${index + 1}, score ${clip.excitementScore}. Press Enter to play.`}
+      onClick={onPlay}
+      onKeyDown={e => {
+        if (e.key === 'Enter' && e.target === e.currentTarget) onPlay();
+      }}
+      className={`px-3.5 py-3 rounded-xl border cursor-pointer transition-colors flex flex-col gap-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-500 ${surface}`}
+    >
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-zinc-500 tabular-nums">{String(index + 1).padStart(2, '0')}</span>
+        <ScoreBadge score={clip.excitementScore} />
+        <span className="ml-auto text-xs text-zinc-400 tabular-nums">
+          {formatTimestamp(clip.startSeconds)} to {formatTimestamp(clip.endSeconds)}
+        </span>
       </div>
 
-      {/* Source file badge for multi-video */}
+      <ClipBadges clip={clip} />
+
+      {/* Source file for multi-video sessions */}
       {showSource && (
-        <div className="flex items-center gap-1.5 text-[10px] text-zinc-500">
-          <Film size={10} />
+        <div className="flex items-center gap-1.5 text-[11px] text-zinc-500 min-w-0">
+          <Film size={11} className="shrink-0" />
           <span className="truncate">{filename}</span>
         </div>
       )}
 
-      {/* Smart Edit Roadmap: Section type / Energy / Recommendation row */}
-      {(clip.sectionType || clip.energyLevel || clip.recommendation) && (
-        <div className="flex items-center gap-2 flex-wrap">
-          {clip.sectionType && (
-            <span className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border font-medium ${SECTION_TYPE_CONFIG[clip.sectionType].class}`}>
-              {SECTION_TYPE_CONFIG[clip.sectionType].icon}
-              {SECTION_TYPE_CONFIG[clip.sectionType].label}
-            </span>
-          )}
-          {clip.energyLevel && (
-            <span className="flex items-center gap-1 text-[10px] text-zinc-500" title={`Energy: ${clip.energyLevel}`}>
-              {ENERGY_ICONS[clip.energyLevel]}
-              <span className="capitalize">{clip.energyLevel}</span>
-            </span>
-          )}
-          {clip.recommendation && (
-            <span className={`text-[10px] px-1.5 py-0.5 rounded border ${RECOMMENDATION_CONFIG[clip.recommendation].class}`}>
-              {RECOMMENDATION_CONFIG[clip.recommendation].label}
-            </span>
-          )}
-          {clip.transitionNote && (
-            <span className="text-[10px] text-zinc-500 italic" title={clip.transitionNote}>
-              "{clip.transitionNote}"
-            </span>
-          )}
-        </div>
+      <p className={`text-sm text-zinc-200 leading-relaxed ${isActive ? '' : 'line-clamp-2'}`}>
+        {clip.description}
+      </p>
+
+      {clip.transitionNote && (
+        <p className={`text-xs text-zinc-500 italic ${isActive ? '' : 'line-clamp-1'}`}>{clip.transitionNote}</p>
       )}
 
-      {/* Mood / Lighting / Colors row */}
-      {(clip.mood || clip.lighting || clip.dominantColors?.length) && (
-        <div className="flex items-center gap-2 flex-wrap">
-          {clip.mood && (
-            <span className={`text-[10px] px-1.5 py-0.5 rounded border ${MOOD_CONFIG[clip.mood].class}`}>
-              {MOOD_CONFIG[clip.mood].label}
-            </span>
+      <div className="flex items-start gap-2">
+        <div className="flex-1 min-w-0 pt-1">
+          <WhyDisclosure reasoning={clip.reasoning} />
+        </div>
+        <div className="flex items-center gap-0.5 shrink-0">
+          <button type="button" onClick={act(onPlay)} onMouseDown={keepFocus} title="Play this clip" aria-label="Play this clip" className={`${iconButton} hover:text-white hover:bg-zinc-800`}>
+            <Play size={14} />
+          </button>
+          {onMusic && (
+            <button type="button" onClick={act(onMusic)} title="Find music for this clip" aria-label="Find music for this clip" className={`${iconButton} hover:text-emerald-400 hover:bg-emerald-500/10`}>
+              <Music size={14} />
+            </button>
           )}
-          {clip.lighting && (
-            <span className="flex items-center gap-1 text-[10px] text-zinc-500" title={clip.lighting.replace('_', ' ')}>
-              {LIGHTING_ICONS[clip.lighting]}
-            </span>
+          {onCaption && (
+            <button type="button" onClick={act(onCaption)} title="Generate social media captions" aria-label="Generate social media captions" className={`${iconButton} hover:text-amber-400 hover:bg-amber-500/10`}>
+              <MessageCircle size={14} />
+            </button>
           )}
-          {clip.dominantColors && clip.dominantColors.length > 0 && (
-            <div className="flex items-center gap-1" title={clip.dominantColors.join(', ')}>
-              {clip.dominantColors.slice(0, 3).map((color, i) => (
-                <span
-                  key={i}
-                  className={`w-2.5 h-2.5 rounded-full border border-zinc-700 ${getColorDotClass(color)}`}
-                />
-              ))}
-            </div>
+          <button type="button" onClick={act(copyCommand)} onMouseDown={keepFocus} title="Copy FFmpeg command" aria-label="Copy FFmpeg command" className={`${iconButton} hover:text-white hover:bg-zinc-800`}>
+            {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+          </button>
+          {onRemove && (
+            <button type="button" onClick={act(onRemove)} onMouseDown={keepFocus} title="Remove this clip" aria-label="Remove this clip" className={`${iconButton} hover:text-red-400 hover:bg-red-500/10`}>
+              <Trash2 size={14} />
+            </button>
           )}
         </div>
-      )}
-
-      <div className="flex-1">
-        <p className="text-sm text-zinc-200 font-medium leading-relaxed">
-          {clip.description}
-        </p>
-      </div>
-
-      <div className="flex gap-2 mt-1">
-        <button
-          onClick={onPlay}
-          className="flex-1 flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white text-xs py-2 rounded-lg transition-colors"
-        >
-          <Play size={14} /> Preview
-        </button>
-        {onMusic && (
-          <button
-            onClick={onMusic}
-            title="Find Music for This Clip"
-            className="px-3 flex items-center justify-center gap-2 bg-zinc-950 border border-zinc-800 hover:border-emerald-500/50 hover:bg-emerald-500/10 text-zinc-400 hover:text-emerald-400 text-xs py-2 rounded-lg transition-all"
-          >
-            <Music size={14} />
-          </button>
-        )}
-        {onCaption && (
-          <button
-            onClick={onCaption}
-            title="Generate Social Media Captions"
-            className="px-3 flex items-center justify-center gap-2 bg-zinc-950 border border-zinc-800 hover:border-amber-500/50 hover:bg-amber-500/10 text-zinc-400 hover:text-amber-400 text-xs py-2 rounded-lg transition-all"
-          >
-            <MessageCircle size={14} />
-          </button>
-        )}
-        <button
-          onClick={copyCommand}
-          title="Copy FFmpeg Command"
-          className="px-3 flex items-center justify-center gap-2 bg-zinc-950 border border-zinc-800 hover:border-zinc-600 text-zinc-400 hover:text-white text-xs py-2 rounded-lg transition-all"
-        >
-          {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
-        </button>
-        {onRemove && (
-          <button
-            onClick={onRemove}
-            title="Remove this clip"
-            className="px-3 flex items-center justify-center gap-2 bg-zinc-950 border border-zinc-800 hover:border-red-500/50 hover:bg-red-500/10 text-zinc-400 hover:text-red-400 text-xs py-2 rounded-lg transition-all"
-          >
-            <Trash2 size={14} />
-          </button>
-        )}
       </div>
     </div>
   );

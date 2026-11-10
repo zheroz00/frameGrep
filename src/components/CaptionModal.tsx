@@ -209,11 +209,11 @@ export default function CaptionModal({
 
   return (
     <div
-      className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200"
+      className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50"
       onClick={(e) => e.stopPropagation()} // Prevent accidental closes
     >
       <div
-        className="bg-zinc-900 rounded-xl shadow-2xl max-w-3xl w-full mx-4 border border-zinc-800 animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col"
+        className="bg-zinc-900 rounded-xl shadow-2xl max-w-3xl w-full mx-4 border border-zinc-800 max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

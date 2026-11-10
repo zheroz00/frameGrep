@@ -58,7 +58,24 @@ All source lives under `src/`. Config files (`vite.config.ts`, `tsconfig.json`, 
 - `transcodeService.ts`: POSTs raw video bytes to `/api/transcode`.
 - `workspaceDirectory.ts`: IndexedDB-backed directory handle store for folder linking.
 
+**Layout components** (all take plain props from `App.tsx`)
+- `components/layout/AppHeader.tsx`: top bar with the provider switch, model label, Projects, Music, GPU widget, Settings and Prompt Lab buttons.
+- `components/SourcePanel.tsx`: relink banner, file picker, Analyze button, queue list, progress indicator and error box (left rail).
+- `components/ExportPanel.tsx`: EDL / FFmpeg / DaVinci / Captions buttons, export mode toggle, DaVinci media folder input and FFmpeg preview (left rail).
+- `components/ClipList.tsx`: the clips column with the section-type breakdown, empty state, `ClipCard` list and loading skeleton (right rail).
+
+**Review desk** (center column, plus the pieces the clip cards share)
+- `components/VideoPlayer.tsx`: plays one span of the active video. Exposes `togglePlay()` and `getCurrentTime()` through a ref and reports `onSegmentEnd` / `onDuration`. A `playToken` prop makes replaying the same span seek again.
+- `components/ClipTimeline.tsx`: the clip map, a read-only strip of the active video with one block per clip (height = score, color = type). Click a block to play it. The playhead is moved by writing its style from an animation frame loop, not through React state.
+- `components/NowPlayingBar.tsx`: details of the clip in the player, previous / next, and the Play all toggle.
+- `components/WhyDisclosure.tsx`: chevron that opens the model's `reasoning` for a clip. Used by the bar and by `ClipCard`.
+- `components/clipBadges.tsx`: `ScoreBadge` and `ClipBadges`, the shared chip vocabulary.
+- `hooks/useClipReview.ts`: previous / next, Play all (follows the export mode via `filterClipsForExport`, so the preview matches the export) and the keyboard shortcuts: Down / J, Up / K, Space, Delete, Ctrl+Z. Disabled while a modal or drawer is open.
+- `hooks/useFileDrop.ts`: drag-and-drop of video files onto the page.
+- `domain/review.ts`: pure clip map geometry and stepping math (tested).
+
 **Utils and constants**
+- `utils/downloadFile.ts`: browser download helper for generated text exports (EDL, FFmpeg script, FCPXML).
 - `utils/exportCore.ts`: the actual EDL / FFmpeg / FCPXML generators (pure, tested).
 - `utils/exportUtils.ts`: thin wrapper over `exportCore` plus data import/export with format
   auto-detection.

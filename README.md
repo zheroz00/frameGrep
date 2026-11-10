@@ -11,6 +11,8 @@ suggestions that match the mood, and export cut-ready clips to your editor. fram
 identifies *what's worth keeping* — it hands the actual editing off to DaVinci Resolve,
 Premiere, or FFmpeg.
 
+> 📸 **Screenshot needed:** review desk at full width with a clip playing, the clip map visible and one "Why this clip" open -> docs/images/review-desk.png
+
 ## Features
 
 - **AI highlight detection** — a vision model scans the footage and returns scored clips
@@ -21,6 +23,9 @@ Premiere, or FFmpeg.
   extract frames client-side for those that don't.
 - **Royalty-free music suggestions** — analyzes clip mood/energy and queries Jamendo for
   matching Creative Commons tracks, with inline preview.
+- **Review desk**: a full-width player with a clip map of the whole video, keyboard
+  stepping (Up / Down, Space, Delete with undo), Play all to preview the cut, and the
+  model's reasoning for each clip one click away.
 - **Multi-video batch** — queue several files; each clip tracks its source for exports.
 - **Export to real editors** — EDL, FFmpeg script, or FCPXML (DaVinci Resolve), with
   accurate fps/resolution pulled from the file via `mediainfo.js`.

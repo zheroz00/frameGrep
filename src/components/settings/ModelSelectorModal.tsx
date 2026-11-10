@@ -73,8 +73,8 @@ export default function ModelSelectorModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[60] animate-in fade-in duration-200">
-      <div className="bg-zinc-900 rounded-xl shadow-2xl max-w-4xl w-full mx-4 border border-zinc-800 max-h-[85vh] flex flex-col animate-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[60]">
+      <div className="bg-zinc-900 rounded-xl shadow-2xl max-w-4xl w-full mx-4 border border-zinc-800 max-h-[85vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-zinc-800">
           <div className="flex items-center gap-2">
