@@ -62,7 +62,8 @@ All source lives under `src/`. Config files (`vite.config.ts`, `tsconfig.json`, 
 - `utils/exportCore.ts`: the actual EDL / FFmpeg / FCPXML generators (pure, tested).
 - `utils/exportUtils.ts`: thin wrapper over `exportCore` plus data import/export with format
   auto-detection.
-- `constants/defaultPresets.ts`: FPV + Generic preset definitions. FPV instructions are role and
+- `constants/defaultPresets.ts`: FPV + Generic preset definitions, plus the Shop presets spread in
+  from `constants/shopPresets.ts` (CNC, laser/plasma, shop tools). FPV instructions are role and
   scoring only; the move vocabulary is appended at prompt-build time.
 - `constants/fpvMoves.ts`: canonical FPV maneuver dictionary (22 moves). Exports structured
   `FpvMove[]` plus `renderFpvMoveDictionary()`.

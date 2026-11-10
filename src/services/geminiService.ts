@@ -228,6 +228,14 @@ const OPTIMIZATION_GUIDELINES: Record<string, string> = {
 6. DO NOT include a "MOVE VOCABULARY" section or per-move definitions in the rewrite. A canonical FPV move dictionary is appended automatically at runtime — duplicating it here would inflate the prompt. Focus the rewrite on role, objective, visual/audio signals, scoring rubric, and discard rules only.
 7. Return ONLY the improved instruction text.`,
 
+  shop: `Guidelines for the new version:
+1. Use clear, practical language appropriate for maker and shop footage: CNC routers, lasers, plasma tables, hand and power tools, CAD/CAM screens.
+2. Clarify the goals (what moments to pick, what to ignore).
+3. Footage is often long and repetitive (a fixed camera watching a machine run). Keep the focus on signals that mark a real change: a new operation, a tool change, a problem, a reveal, spindle or motor sounds changing.
+4. Maintain the structure so it still works for JSON extraction.
+5. DO NOT mention the output schema itself (that is handled separately).
+6. Return ONLY the improved instruction text.`,
+
   generic: `Guidelines for the new version:
 1. Use clear, professional language appropriate for the content type being analyzed.
 2. Clarify the goals (what moments to pick, what to ignore).
@@ -247,7 +255,7 @@ const OPTIMIZATION_GUIDELINES: Record<string, string> = {
 
 /**
  * Uses Gemini to optimize a prompt for video analysis.
- * @param category - The preset category ('fpv', 'generic', 'custom') to tailor optimization guidelines
+ * @param category - The preset category ('fpv', 'shop', 'generic', 'custom') to tailor optimization guidelines
  */
 export const optimizeSystemInstruction = async (
   apiKey: string,
@@ -260,6 +268,8 @@ export const optimizeSystemInstruction = async (
   const guidelines = OPTIMIZATION_GUIDELINES[category] || OPTIMIZATION_GUIDELINES.generic;
   const contextDescription = category === 'fpv'
     ? 'identifying FPV drone maneuvers and cinematic moments'
+    : category === 'shop'
+    ? 'identifying key moments in maker, CNC and shop footage'
     : 'identifying key moments and highlights in video content';
 
   const metaPrompt = `You are a world-class AI Prompt Engineer specializing in Video Multimodal Analysis.

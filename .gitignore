@@ -49,3 +49,6 @@ dist-ssr
 # Python bytecode (marlin/vllm helper scripts)
 __pycache__/
 *.pyc
+
+# Claude Code local settings (maintainer-specific)
+.claude/

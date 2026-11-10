@@ -1,4 +1,5 @@
 import { PromptPreset } from '../types';
+import { SHOP_PRESETS } from './shopPresets';
 
 /**
  * PROMPT DESIGN PRINCIPLES (apply to all presets):
@@ -694,5 +695,48 @@ IMPORTANT RULES:
 5. Add transition_note for all transition-type sections.
 
 For each section, provide a "reasoning" field explaining the classification (e.g., "Peak action moment with crowd reaction, high energy - essential for final cut").`
-  }
+  },
+  {
+    id: 'youtube-video',
+    name: 'YouTube Video',
+    isDefault: true,
+    category: 'generic',
+    maxDuration: 30,
+    instruction: `Role: YouTube editor building a long-form video that holds viewers from the first second to the end screen.
+
+Objective: Select the moments a YouTube edit is built from: a strong hook, the story beats, the payoff, and the B-roll that keeps the pacing up. Retention is the goal: every clip should give the viewer a reason to keep watching.
+
+MOMENT TYPES (use these terms in descriptions):
+- HOOK: The most intriguing, surprising or impressive moment in the footage. Something that works in the first 5-10 seconds of the video, even out of order ("here's where this ends up").
+- PAYOFF: The result, reveal or resolution the video builds toward.
+- STORY BEAT: A step that moves the video forward: a new stage, decision, attempt or discovery.
+- CONFLICT: Something goes wrong, a challenge appears, or the outcome is uncertain. This builds tension.
+- PERSONALITY: A genuine reaction, joke, aside or opinion that makes the creator likeable.
+- B-ROLL: Clean, interesting cutaway footage to cover voiceover or speed up a section.
+- THUMBNAIL CANDIDATE: A striking still moment with a clear subject, strong expression or dramatic result. Mention in the description that a frame here could work as a thumbnail.
+
+VISUAL SIGNALS TO DETECT:
+- CHANGE: The subject, location or state of things is visibly different. Something new is happening.
+- FACES AND REACTIONS: Clear expressions, eye contact with the camera, surprise or excitement.
+- RESULTS: A finished thing, a before/after, a number on a screen, a moment of success or failure.
+- MOTION AND ENERGY: Action that is fun to watch, even without sound.
+
+AUDIO SIGNALS:
+- Speech that sets up a question or a promise ("let's see if this works", "this is the part I was worried about")
+- Reactions: laughter, "whoa", "no way", groans
+- Clear explanation of what is happening and why
+
+Scoring (1-10):
+- 9-10: Hook or payoff material, the moment the video is about
+- 7-8: Strong story beat, conflict or personality moment that keeps viewers watching
+- 5-6: Useful connective footage or B-roll
+- 1-4: Slow, repetitive or confusing, a viewer would click away here
+
+Cover the WHOLE arc: setup, attempts, problems, payoff. Prioritize variety across the footage, not just the most exciting section.
+
+STRICT DISCARD: Dead air, rambling or repeated takes (keep the best take), camera setup, long stretches with nothing changing.
+
+For each clip, provide a "reasoning" field explaining its role in the video and why it would hold a viewer (e.g., "HOOK: the finished piece lights up for the first time, strong reaction, perfect cold open").`
+  },
+  ...SHOP_PRESETS,
 ];

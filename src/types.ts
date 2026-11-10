@@ -115,7 +115,7 @@ export interface VideoQueueItem {
   transcodedSize?: number;
 }
 
-export type PresetCategory = 'fpv' | 'generic' | 'custom';
+export type PresetCategory = 'fpv' | 'shop' | 'generic' | 'custom';
 
 export interface PromptPreset {
   id: string;

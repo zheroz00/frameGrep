@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   Sparkles, Loader2, RefreshCw, FileUp, FileDown,
-  HardDrive, CheckCircle2, XCircle, Clock, Save, Plane, Film, User, X, Download
+  HardDrive, CheckCircle2, XCircle, Clock, Save, Plane, Film, User, X, Download, Wrench
 } from 'lucide-react';
 import { PromptPreset, PresetCategory } from '../types';
 import { exportPresetsToJSON } from '../utils/exportUtils';
@@ -9,6 +9,7 @@ import FpvMoveDictionaryPanel from './FpvMoveDictionaryPanel';
 
 const CATEGORY_CONFIG: Record<PresetCategory, { label: string; icon: React.ReactNode }> = {
   fpv: { label: 'FPV Drone', icon: <Plane size={14} /> },
+  shop: { label: 'Shop', icon: <Wrench size={14} /> },
   generic: { label: 'Generic', icon: <Film size={14} /> },
   custom: { label: 'Custom', icon: <User size={14} /> },
 };
