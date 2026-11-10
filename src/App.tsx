@@ -23,6 +23,7 @@ import { useMusic } from './hooks/useMusic';
 import { useClipReview } from './hooks/useClipReview';
 import { useFileDrop } from './hooks/useFileDrop';
 import { buildTimelineSegments, timelineSpan } from './domain/review';
+import { rememberFolder } from './utils/recentFolders';
 import { getEDLCompatibility, getSourceIdentityIssue } from './utils/exportUtils';
 import { resolveCaptionBackend } from './services/captionService';
 import { ExportMode, Project, ClipSegment, CaptionMode } from './types';
@@ -414,6 +415,8 @@ export default function App() {
               setExportMode={setExportMode}
               davinciMediaFolder={settings.davinciMediaFolder}
               onDavinciMediaFolderChange={(folder) => updateSettings({ davinciMediaFolder: folder })}
+              recentFolders={settings.davinciRecentFolders ?? []}
+              onFolderUsed={(folder) => updateSettings({ davinciRecentFolders: rememberFolder(settings.davinciRecentFolders ?? [], folder) })}
               selectedMusic={music.selectedTrack}
               exportProjectName={exportProjectName}
               exportFilename={exportFilename}

@@ -175,6 +175,7 @@ export interface AppSettings {
   geminiFps: number;                              // Frames/sec Gemini samples (default 1). Higher = catches sub-second action, more tokens
   autoDownsample: boolean;                        // Auto-transcode over-target clips to 720p/30fps before upload (original file untouched)
   davinciMediaFolder?: string;                    // Optional source-video folder path; embeds absolute paths in FCPXML so DaVinci auto-links media (blank = relink in NLE)
+  davinciRecentFolders?: string[];                // Footage folders used for past DaVinci exports, most recent first
   customConfig: CustomProviderConfig;
   marlinEndpoint?: string;                        // Local Marlin-2B server (default '/api/marlin', proxied to :8003)
   jamendoClientId?: string;                       // For music suggestions feature

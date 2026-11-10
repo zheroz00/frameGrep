@@ -1,16 +1,21 @@
 import type { ClipSegment, ExportMode, FrameRate, VideoSource } from '../types';
 
-const xml = (value: string): string => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+export const xml = (value: string): string => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 const gcd = (a: number, b: number): number => b ? gcd(b, a % b) : Math.abs(a) || 1;
 
-const rationalSeconds = (seconds: number, rate: FrameRate): string => {
-  const frames = Math.round(seconds * rate.numerator / rate.denominator);
+/** Whole frames at `rate` nearest to `seconds`. */
+export const toFrames = (seconds: number, rate: FrameRate): number => Math.round(seconds * rate.numerator / rate.denominator);
+
+/** A frame count as an exact FCPXML rational time, e.g. 120 frames at 30000/1001 is "1001/250s". */
+export const rationalFrames = (frames: number, rate: FrameRate): string => {
   const numerator = frames * rate.denominator;
   const divisor = gcd(numerator, rate.numerator);
   return `${numerator / divisor}/${rate.numerator / divisor}s`;
 };
 
-const frameDuration = (rate: FrameRate): string => `${rate.denominator}/${rate.numerator}s`;
+export const rationalSeconds = (seconds: number, rate: FrameRate): string => rationalFrames(toFrames(seconds, rate), rate);
+
+export const frameDuration = (rate: FrameRate): string => `${rate.denominator}/${rate.numerator}s`;
 const rateKey = (rate: FrameRate): string => `${rate.numerator}/${rate.denominator}`;
 
 export const filterClipsForExport = (clips: ClipSegment[], mode: ExportMode): ClipSegment[] => mode === 'highlights_only'
@@ -45,12 +50,20 @@ export interface FCPXMLOptions {
   mediaFolder?: string;
 }
 
-export const generateFCPXML = (projectName: string, clips: ClipSegment[], options: FCPXMLOptions): string => {
-  const sources = usedSources(clips, options.sources);
-  if (!sources.length) throw new Error('FCPXML export requires at least one linked source.');
-  const identityIssue = getSourceIdentityIssue(sources);
-  if (identityIssue) throw new Error(identityIssue);
-  const sequenceSource = sources[0];
+export interface FCPXMLResources {
+  /** `<format>` and `<asset>` lines, ready to join inside `<resources>`. */
+  lines: string[];
+  formatIds: Map<string, string>;
+  assetIds: Map<string, string>;
+  audioId: string | null;
+}
+
+/**
+ * The `<resources>` block shared by every FCPXML export: one exact format and one asset per
+ * source, plus the optional music asset. `clips` only supplies a fallback duration for
+ * sources whose metadata has none.
+ */
+export const buildFCPXMLResources = (sources: VideoSource[], clips: ClipSegment[], options: FCPXMLOptions): FCPXMLResources => {
   const formatIds = new Map(sources.map((source, index) => [source.id, `r${index + 1}`]));
   const assetOffset = sources.length + 1;
   const assetIds = new Map(sources.map((source, index) => [source.id, `r${assetOffset + index}`]));
@@ -70,6 +83,16 @@ export const generateFCPXML = (projectName: string, clips: ClipSegment[], option
     resources.push(`      <media-rep kind="original-media" src="${mediaSrc(options.audioFilename)}"/>`);
     resources.push('    </asset>');
   }
+  return { lines: resources, formatIds, assetIds, audioId };
+};
+
+export const generateFCPXML = (projectName: string, clips: ClipSegment[], options: FCPXMLOptions): string => {
+  const sources = usedSources(clips, options.sources);
+  if (!sources.length) throw new Error('FCPXML export requires at least one linked source.');
+  const identityIssue = getSourceIdentityIssue(sources);
+  if (identityIssue) throw new Error(identityIssue);
+  const sequenceSource = sources[0];
+  const { lines: resources, formatIds, assetIds, audioId } = buildFCPXMLResources(sources, clips, options);
 
   let cursor = 0;
   const spine: string[] = [];
